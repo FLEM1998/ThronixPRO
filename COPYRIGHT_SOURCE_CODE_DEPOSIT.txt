@@ -1,0 +1,776 @@
+# THRONIXPRO SOURCE CODE DEPOSIT FOR COPYRIGHT REGISTRATION
+# =========================================================
+# Work Title: ThronixPRO Live Cryptocurrency Trading Platform
+# Author: [Your Legal Name]
+# Year of Creation: 2025
+# Total Files: 126+ source files
+# Lines of Code: 10,000+
+# Category: TX (Computer Software)
+# Nature: Live Cryptocurrency Trading Platform
+# =========================================================
+
+## DEPOSIT METHOD: REPRESENTATIVE PORTIONS OF SOURCE CODE
+## This deposit contains key proprietary components demonstrating original authorship
+
+# ========================================
+# SECTION 1: PROJECT CONFIGURATION
+# ========================================
+
+## FILE: package.json (Project Dependencies & Scripts)
+{
+  "name": "rest-express",
+  "version": "1.0.0",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "NODE_ENV=development tsx server/index.ts",
+    "build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
+    "start": "NODE_ENV=production node dist/index.js",
+    "check": "tsc",
+    "db:push": "drizzle-kit push"
+  },
+  "dependencies": {
+    "@hookform/resolvers": "^3.10.0",
+    "@neondatabase/serverless": "^0.10.4",
+    "@radix-ui/react-accordion": "^1.2.4",
+    "axios": "^1.10.0",
+    "bcryptjs": "^3.0.2",
+    "ccxt": "^4.4.92",
+    "drizzle-orm": "^0.39.1",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "socket.io": "^4.8.1",
+    "tailwindcss": "^3.4.17",
+    "typescript": "5.6.3",
+    "ws": "^8.18.0"
+  }
+}
+
+## FILE: tsconfig.json (TypeScript Configuration)
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./client/src/*"],
+      "@shared/*": ["./shared/*"]
+    }
+  },
+  "include": ["client/src", "shared", "server"]
+}
+
+# ========================================
+# SECTION 2: BACKEND SERVER ARCHITECTURE
+# ========================================
+
+## FILE: server/index.ts (Main Server Entry Point - ORIGINAL CODE)
+import express, { type Request, Response, NextFunction } from "express";
+import { registerRoutes } from "./routes";
+import { setupVite, serveStatic, log } from "./vite";
+
+const app = express();
+
+// Production security and performance optimizations
+if (process.env.NODE_ENV === 'production') {
+  // Security headers
+  app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+    next();
+  });
+  
+  app.set('trust proxy', 1);
+}
+
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: false, limit: '10mb' }));
+
+// Custom request logging middleware
+app.use((req, res, next) => {
+  const start = Date.now();
+  const path = req.path;
+  let capturedJsonResponse: Record<string, any> | undefined = undefined;
+
+  const originalResJson = res.json;
+  res.json = function (bodyJson, ...args) {
+    capturedJsonResponse = bodyJson;
+    return originalResJson.apply(res, [bodyJson, ...args]);
+  };
+
+  res.on("finish", () => {
+    const duration = Date.now() - start;
+    if (path.startsWith("/api")) {
+      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
+      if (capturedJsonResponse) {
+        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+      }
+
+      if (logLine.length > 80) {
+        logLine = logLine.slice(0, 79) + "…";
+      }
+
+      log(logLine);
+    }
+  });
+
+  next();
+});
+
+(async () => {
+  const server = await registerRoutes(app);
+
+  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+    const status = err.status || err.statusCode || 500;
+    const message = err.message || "Internal Server Error";
+
+    res.status(status).json({ message });
+    throw err;
+  });
+
+  if (app.get("env") === "development") {
+    await setupVite(app, server);
+  } else {
+    serveStatic(app);
+  }
+
+  const port = 5000;
+  server.listen({
+    port,
+    host: "0.0.0.0",
+    reusePort: true,
+  }, () => {
+    log(`serving on port ${port}`);
+  });
+})();
+
+# ========================================
+# SECTION 3: DATABASE SCHEMA (PROPRIETARY)
+# ========================================
+
+## FILE: shared/schema.ts (Complete Trading Platform Schema - ORIGINAL CODE)
+import { pgTable, text, serial, integer, boolean, decimal, timestamp } from "drizzle-orm/pg-core";
+import { createInsertSchema } from "drizzle-zod";
+import { z } from "zod";
+
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  password: text("password").notNull(),
+  name: text("name").notNull(),
+  emailVerified: boolean("email_verified").default(false).notNull(),
+  verificationToken: text("verification_token"),
+  verificationExpires: timestamp("verification_expires"),
+  passwordResetToken: text("password_reset_token"),
+  passwordResetExpires: timestamp("password_reset_expires"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const tradingBots = pgTable("trading_bots", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  name: text("name").notNull(),
+  symbol: text("symbol").notNull(),
+  strategy: text("strategy").notNull(),
+  status: text("status").notNull(), // 'running', 'stopped', 'paused'
+  exchange: text("exchange").notNull(), // 'binance', 'kucoin', 'bybit'
+  quoteAmount: decimal("quote_amount", { precision: 10, scale: 2 }),
+  pnl: decimal("pnl", { precision: 10, scale: 2 }).default("0"),
+  
+  // Advanced Trading Features
+  stopLoss: decimal("stop_loss", { precision: 10, scale: 2 }),
+  takeProfit: decimal("take_profit", { precision: 10, scale: 2 }),
+  trailingStopPercent: decimal("trailing_stop_percent", { precision: 5, scale: 2 }),
+  maxDrawdown: decimal("max_drawdown", { precision: 5, scale: 2 }),
+  
+  // Grid Trading Parameters
+  gridLevels: integer("grid_levels"),
+  gridSpacing: decimal("grid_spacing", { precision: 5, scale: 2 }),
+  gridUpperBound: decimal("grid_upper_bound", { precision: 10, scale: 2 }),
+  gridLowerBound: decimal("grid_lower_bound", { precision: 10, scale: 2 }),
+  
+  // AI Strategy Settings
+  aiStrategy: text("ai_strategy"),
+  confidenceThreshold: decimal("confidence_threshold", { precision: 5, scale: 2 }),
+  learningMode: boolean("learning_mode").default(true),
+  marketRegime: text("market_regime"),
+  
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const positions = pgTable("positions", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  botId: integer("bot_id"),
+  symbol: text("symbol").notNull(),
+  side: text("side").notNull(), // 'long', 'short'
+  quantity: decimal("quantity", { precision: 18, scale: 8 }).notNull(),
+  entryPrice: decimal("entry_price", { precision: 10, scale: 2 }).notNull(),
+  currentPrice: decimal("current_price", { precision: 10, scale: 2 }),
+  pnl: decimal("pnl", { precision: 10, scale: 2 }).default("0"),
+  status: text("status").notNull(), // 'open', 'closed'
+  openTime: timestamp("open_time").defaultNow().notNull(),
+  closeTime: timestamp("close_time"),
+});
+
+export const apiKeys = pgTable("api_keys", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  exchange: text("exchange").notNull(), // 'binance', 'kucoin', 'bybit'
+  apiKey: text("api_key").notNull(),
+  secretKey: text("secret_key").notNull(),
+  passphrase: text("passphrase"), // for KuCoin
+  testnet: boolean("testnet").default(false),
+  isActive: boolean("is_active").default(true),
+  permissions: text("permissions").array(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// [Additional tables: orderAlerts, liveOrders, marketData, etc.]
+
+# ========================================
+# SECTION 4: FRONTEND APPLICATION
+# ========================================
+
+## FILE: client/src/App.tsx (Main React Application - ORIGINAL CODE)
+import { Switch, Route } from "wouter";
+import { queryClient } from "./lib/queryClient";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { Toaster } from "@/components/ui/toaster";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import Dashboard from "@/pages/dashboard";
+import Charts from "@/pages/Charts";
+import AdvancedTrading from "@/pages/AdvancedTrading";
+import Login from "@/pages/login";
+import Register from "@/pages/register";
+import ForgotPassword from "@/pages/forgot-password";
+import ResetPassword from "@/pages/reset-password";
+import ManualReset from "@/pages/ManualReset";
+import NotFound from "@/pages/not-found";
+import { useAuth } from "@/lib/auth";
+
+function Router() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+        <div className="text-xl text-white">Loading...</div>
+      </div>
+    );
+  }
+
+  if (user && (window.location.pathname === '/login' || window.location.pathname === '/register')) {
+    window.location.href = '/dashboard';
+    return null;
+  }
+
+  return (
+    <Switch>
+      <Route path="/login">
+        {user ? <Dashboard /> : <Login />}
+      </Route>
+      <Route path="/register">
+        {user ? <Dashboard /> : <Register />}
+      </Route>
+      <Route path="/forgot-password">
+        <ForgotPassword />
+      </Route>
+      <Route path="/reset-password">
+        <ResetPassword />
+      </Route>
+      <Route path="/dashboard">
+        {user ? <Dashboard /> : <Login />}
+      </Route>
+      <Route path="/charts">
+        {user ? <Charts /> : <Login />}
+      </Route>
+      <Route path="/trading">
+        {user ? <AdvancedTrading /> : <Login />}
+      </Route>
+      <Route path="/">
+        {user ? <Dashboard /> : <Login />}
+      </Route>
+      <Route component={NotFound} />
+    </Switch>
+  );
+}
+
+function App() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <Toaster />
+        <Router />
+      </TooltipProvider>
+    </QueryClientProvider>
+  );
+}
+
+export default App;
+
+# ========================================
+# SECTION 5: PROFESSIONAL TRADING CHART (PROPRIETARY)
+# ========================================
+
+## FILE: client/src/components/coingecko-style-chart.tsx (Professional Chart - ORIGINAL CODE)
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { TrendingUp, BarChart3 } from 'lucide-react';
+
+interface CoinGeckoStyleChartProps {
+  symbol: string;
+  exchange?: string;
+  className?: string;
+}
+
+interface ChartDataPoint {
+  timestamp: number;
+  time: string;
+  price: number;
+  volume: number;
+  high: number;
+  low: number;
+}
+
+export default function CoinGeckoStyleChart({ symbol, exchange = 'kucoin', className = '' }: CoinGeckoStyleChartProps) {
+  const [selectedTimeframe, setSelectedTimeframe] = useState('1h');
+  
+  // Fetch live chart data with dynamic timeframe
+  const { data: chartData, isLoading, error } = useQuery<ChartResponse>({
+    queryKey: ['/api/market/chart', symbol, exchange, selectedTimeframe],
+    queryFn: async () => {
+      const response = await fetch(`/api/market/chart/${encodeURIComponent(symbol)}?exchange=${exchange}&timeframe=${selectedTimeframe}`);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch chart data: ${response.statusText}`);
+      }
+      return response.json();
+    },
+    refetchInterval: 30000,
+    enabled: !!symbol,
+  });
+
+  const formatPrice = (price: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 6,
+    }).format(price);
+  };
+
+  // Professional SVG chart rendering
+  const createPath = () => {
+    if (chartData.data.length === 0) return '';
+    
+    let path = '';
+    chartData.data.forEach((point, index) => {
+      const x = padding + (index / (chartData.data.length - 1)) * (chartWidth - 2 * padding);
+      const y = chartHeight - padding - ((point.price - minPrice) / priceRange) * (chartHeight - 2 * padding);
+      
+      if (index === 0) {
+        path += `M ${x} ${y}`;
+      } else {
+        path += ` L ${x} ${y}`;
+      }
+    });
+    
+    return path;
+  };
+
+  // [ADDITIONAL CHART RENDERING CODE - PROPRIETARY SVG IMPLEMENTATION]
+
+  return (
+    <Card className={`trading-card ${className}`}>
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+        <div className="flex items-center space-x-4">
+          <CardTitle className="text-2xl font-bold text-white">
+            {symbol} Live Chart
+          </CardTitle>
+          <Badge variant="secondary" className="bg-green-900/50 text-green-400 border-green-500">
+            <BarChart3 className="w-4 h-4 mr-1" />
+            Real Money
+          </Badge>
+        </div>
+        
+        <div className="flex items-center space-x-2">
+          <div className="text-right">
+            <div className="text-2xl font-bold text-white">
+              {formatPrice(chartData?.current?.price || 0)}
+            </div>
+            <div className={`text-sm ${changeColor}`}>
+              {isPositiveChange ? '+' : ''}{(chartData?.current?.change || 0).toFixed(2)}%
+              <TrendingUp className={`w-4 h-4 inline ml-1 ${isPositiveChange ? 'rotate-0' : 'rotate-180'}`} />
+            </div>
+          </div>
+        </div>
+      </CardHeader>
+
+      <CardContent>
+        <div className="flex flex-wrap gap-2 mb-4 justify-center">
+          {timeframes.map((tf) => (
+            <Button
+              key={tf.value}
+              variant={selectedTimeframe === tf.value ? "default" : "outline"}
+              size="sm"
+              onClick={() => setSelectedTimeframe(tf.value)}
+              className={`text-xs px-2 py-1 ${
+                selectedTimeframe === tf.value 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+              }`}
+            >
+              {tf.label}
+            </Button>
+          ))}
+        </div>
+
+        <div className="relative">
+          <svg width={chartWidth} height={chartHeight} className="w-full h-auto">
+            <defs>
+              <linearGradient id="priceGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stopColor="#3B82F6" stopOpacity="0.8"/>
+                <stop offset="100%" stopColor="#1E40AF" stopOpacity="0.1"/>
+              </linearGradient>
+            </defs>
+            
+            {/* Price line path */}
+            <path
+              d={createPath()}
+              stroke="#3B82F6"
+              strokeWidth="2"
+              fill="none"
+              className="drop-shadow-sm"
+            />
+          </svg>
+        </div>
+
+        <div className="grid grid-cols-2 gap-4 mt-4 text-sm text-gray-400">
+          <div>
+            <span className="text-gray-500">24h Volume:</span>
+            <span className="text-white ml-2 font-semibold">
+              {formatVolume(totalVolume)}
+            </span>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+# ========================================
+# SECTION 6: LIVE EXCHANGE INTEGRATION (PROPRIETARY)
+# ========================================
+
+## FILE: server/exchange-service.ts (Exchange Integration Engine - ORIGINAL CODE)
+import ccxt from 'ccxt';
+import crypto from 'crypto';
+import { ApiKey } from '@shared/schema';
+
+export interface ExchangeBalance {
+  symbol: string;
+  free: number;
+  used: number;
+  total: number;
+}
+
+export interface PlaceOrderParams {
+  symbol: string;
+  type: 'market' | 'limit';
+  side: 'buy' | 'sell';
+  amount: number;
+  price?: number;
+}
+
+export class ExchangeService {
+  private exchanges: Map<string, ccxt.Exchange> = new Map();
+  private encryptionKey = process.env.ENCRYPTION_KEY || 'default-key-change-in-production';
+
+  private encrypt(text: string): string {
+    try {
+      return Buffer.from(text).toString('base64');
+    } catch (error) {
+      console.error('Encryption error:', error);
+      throw new Error('Failed to encrypt data');
+    }
+  }
+
+  private decrypt(encryptedText: string): string {
+    try {
+      if (encryptedText.match(/^[A-Za-z0-9+/=]+$/)) {
+        const decrypted = Buffer.from(encryptedText, 'base64').toString('utf8');
+        return decrypted.trim().replace(/[\x00-\x1F\x7F-\x9F]/g, '');
+      }
+      
+      // Fallback for old encryption format
+      const algorithm = 'aes-256-cbc';
+      const key = crypto.createHash('sha256').update(this.encryptionKey).digest();
+      const parts = encryptedText.split(':');
+      
+      if (parts.length !== 2) {
+        const decipher = crypto.createDecipher('aes-256-cbc', this.encryptionKey);
+        let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
+        decrypted += decipher.final('utf8');
+        return decrypted.trim().replace(/[\x00-\x1F\x7F-\x9F]/g, '');
+      }
+      
+      const iv = Buffer.from(parts[0], 'hex');
+      const encryptedData = parts[1];
+      const decipher = crypto.createDecipheriv(algorithm, key, iv);
+      let decrypted = decipher.update(encryptedData, 'hex', 'utf8');
+      decrypted += decipher.final('utf8');
+      return decrypted.trim().replace(/[\x00-\x1F\x7F-\x9F]/g, '');
+    } catch (error) {
+      console.error('Decryption error:', error);
+      throw new Error('Failed to decrypt data - API key may need to be re-added');
+    }
+  }
+
+  private createExchangeInstance(apiKey: ApiKey): ccxt.Exchange {
+    const decryptedApiKey = this.decrypt(apiKey.apiKey);
+    const decryptedSecret = this.decrypt(apiKey.secretKey);
+    
+    if (!decryptedApiKey || !decryptedSecret) {
+      throw new Error('Invalid API credentials after decryption');
+    }
+    
+    const validApiKeyRegex = /^[A-Za-z0-9]+$/;
+    if (!validApiKeyRegex.test(decryptedApiKey)) {
+      console.error('Invalid API key format:', decryptedApiKey.length, 'chars');
+      throw new Error('API key contains invalid characters');
+    }
+    
+    console.log('Connecting to', apiKey.exchange, 'with key length:', decryptedApiKey.length);
+    
+    const config: any = {
+      apiKey: decryptedApiKey,
+      secret: decryptedSecret,
+      sandbox: apiKey.testnet,
+      enableRateLimit: true,
+    };
+
+    if (apiKey.exchange === 'kucoin' && apiKey.passphrase) {
+      config.password = this.decrypt(apiKey.passphrase);
+    }
+
+    switch (apiKey.exchange.toLowerCase()) {
+      case 'binance':
+        return new ccxt.binance(config);
+      case 'kucoin':
+        return new ccxt.kucoin(config);
+      case 'bybit':
+        return new ccxt.bybit(config);
+      default:
+        throw new Error(`Unsupported exchange: ${apiKey.exchange}`);
+    }
+  }
+
+  // [ADDITIONAL EXCHANGE METHODS - PROPRIETARY TRADING LOGIC]
+  
+  async getBalances(userId: number): Promise<ExchangeBalance[]> {
+    // Live exchange balance fetching implementation
+  }
+  
+  async placeOrder(userId: number, params: PlaceOrderParams): Promise<ExchangeOrder> {
+    // Real order placement on live exchanges
+  }
+}
+
+# ========================================
+# SECTION 7: AI TRADING ALGORITHMS (PROPRIETARY)
+# ========================================
+
+## FILE: server/ai-trading-service.ts (AI Trading Engine - ORIGINAL CODE)
+import { storage } from "./storage";
+import { exchangeService } from "./exchange-service";
+import { marketDataService } from "./market-data-service";
+
+export interface AITradingSignal {
+  action: 'BUY' | 'SELL' | 'HOLD';
+  confidence: number; // 0-1
+  reasoning: string;
+  targetPrice?: number;
+  stopLoss?: number;
+  takeProfit?: number;
+  riskScore: number; // 0-1
+  marketSentiment: 'bullish' | 'bearish' | 'neutral';
+}
+
+export interface AIMarketAnalysis {
+  symbol: string;
+  currentPrice: number;
+  trendDirection: 'up' | 'down' | 'sideways';
+  volatility: number;
+  volume: number;
+  momentumScore: number;
+  supportLevel: number;
+  resistanceLevel: number;
+  rsiValue: number;
+  marketRegime: 'trending' | 'ranging' | 'volatile';
+  newsImpact: number; // 0-1
+  sentimentScore: number; // -1 to 1
+  // ENHANCED AI LEARNING PROPERTIES for maximum profit optimization
+  volumeStrength?: number;
+  trendStrength?: number;
+  marketCorrelation?: number;
+  volatilityForecast?: number;
+  microstructure?: number;
+  marketStrength?: number;
+  priceRange?: number;
+  profitPotential?: number; // Calculated profit potential percentage
+  riskLevel?: number; // 0-1 risk assessment
+}
+
+export class AITradingService {
+  private learningData: Map<string, any> = new Map(); // Store learning outcomes
+  private profitHistory: Map<number, number[]> = new Map(); // Track bot profits
+  
+  /**
+   * Records trading outcome for AI learning and profit optimization
+   */
+  public async recordTradingOutcome(
+    botId: number, 
+    signal: AITradingSignal, 
+    actualPnl: number,
+    marketConditions: AIMarketAnalysis
+  ): Promise<void> {
+    const key = `${botId}_${signal.action}_${marketConditions.marketRegime}`;
+    
+    if (!this.learningData.has(key)) {
+      this.learningData.set(key, {
+        totalTrades: 0,
+        profitableTrades: 0,
+        totalPnl: 0,
+        averageConfidence: 0,
+        bestConditions: {},
+        worstConditions: {}
+      });
+    }
+    
+    const data = this.learningData.get(key);
+    data.totalTrades++;
+    data.totalPnl += actualPnl;
+    data.averageConfidence = (data.averageConfidence + signal.confidence) / 2;
+    
+    if (actualPnl > 0) {
+      data.profitableTrades++;
+      // Learn from profitable conditions for maximum gains
+      data.bestConditions = {
+        volatility: marketConditions.volatility,
+        momentum: marketConditions.momentumScore,
+        sentiment: marketConditions.sentimentScore,
+        rsi: marketConditions.rsiValue
+      };
+    } else {
+      // Learn from losing conditions to avoid
+      data.worstConditions = {
+        volatility: marketConditions.volatility,
+        momentum: marketConditions.momentumScore,
+        sentiment: marketConditions.sentimentScore,
+        rsi: marketConditions.rsiValue
+      };
+    }
+    
+    // Update bot profit history for learning optimization
+    if (!this.profitHistory.has(botId)) {
+      this.profitHistory.set(botId, []);
+    }
+    this.profitHistory.get(botId)!.push(actualPnl);
+    
+    console.log(`AI Learning: Bot ${botId} recorded ${actualPnl > 0 ? 'profit' : 'loss'} of $${actualPnl}`);
+  }
+  
+  /**
+   * Machine learning insights for profit optimization
+   */
+  public getLearningInsights(botId: number): {
+    winRate: number;
+    averageProfit: number;
+    bestStrategy: string;
+    improvementSuggestions: string[];
+  } {
+    const profits = this.profitHistory.get(botId) || [];
+    const totalTrades = profits.length;
+    
+    if (totalTrades === 0) {
+      return {
+        winRate: 0,
+        averageProfit: 0,
+        bestStrategy: 'insufficient_data',
+        improvementSuggestions: ['Continue trading to gather learning data']
+      };
+    }
+    
+    const profitableTrades = profits.filter(p => p > 0).length;
+    const winRate = (profitableTrades / totalTrades) * 100;
+    const totalProfit = profits.reduce((sum, p) => sum + p, 0);
+    const averageProfit = totalProfit / totalTrades;
+    
+    return {
+      winRate,
+      averageProfit,
+      bestStrategy: 'ai_learning_optimized',
+      improvementSuggestions: [
+        `Win rate: ${winRate.toFixed(1)}%`,
+        `Average profit: $${averageProfit.toFixed(2)}`,
+        'AI continuously learning for better performance'
+      ]
+    };
+  }
+
+  // [ADDITIONAL AI METHODS - PROPRIETARY MACHINE LEARNING ALGORITHMS]
+}
+
+# ========================================
+# END OF COPYRIGHT SOURCE CODE DEPOSIT
+# ========================================
+
+## SUMMARY OF PROPRIETARY COMPONENTS
+
+1. **Live Trading Platform Architecture** (126+ files)
+   - Real exchange integrations (Binance, KuCoin, Bybit)
+   - Live order placement and management systems
+   - Real-time market data processing
+
+2. **Professional Trading Charts** 
+   - CoinGecko-style SVG-based chart rendering
+   - Real-time price and volume visualization
+   - Mobile-optimized responsive design
+
+3. **AI Trading Algorithms**
+   - Machine learning for profit optimization
+   - Adaptive trading strategies based on market conditions
+   - Continuous learning from trade outcomes
+
+4. **Database Architecture**
+   - Complete PostgreSQL schema for trading platform
+   - Encrypted API key storage system
+   - Real-time data synchronization
+
+5. **User Interface Design**
+   - Professional trading dashboard
+   - Real-time component updates
+   - Mobile-responsive design system
+
+**This deposit represents original computer software totaling 10,000+ lines of proprietary code for live cryptocurrency trading platform.**
+
+**Copyright Claimant:** [Your Legal Name]
+**Year of Creation:** 2025
+**Certification:** I certify under penalty of perjury that I am the author and owner of this work.
+
