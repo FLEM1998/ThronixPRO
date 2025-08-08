@@ -90,10 +90,17 @@ const authenticate = async (req: any, res: any, next: any) => {
   }
 };
 
-// Subscription verification middleware - MANDATORY for app access
+// Subscription verification middleware (DISABLED FOR TESTING)
 const requireActiveSubscription = async (req: any, res: any, next: any) => {
   if (!req.user) {
     return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  // TESTING MODE: Skip subscription verification in development
+  if (process.env.NODE_ENV === 'development') {
+    console.log('Development mode: Bypassing subscription requirement for testing');
+    next();
+    return;
   }
 
   try {
@@ -2477,6 +2484,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/subscription/status', authenticate, async (req: any, res) => {
     try {
       const userId = req.user.id;
+      
+      // TESTING MODE: Always return active subscription in development
+      if (process.env.NODE_ENV === 'development') {
+        return res.json({
+          isActive: true,
+          provider: 'testing',
+          expiryDate: null,
+          message: 'Testing mode - subscription bypassed'
+        });
+      }
+      
       const subscriptionStatus = await storage.getUserSubscriptionStatus(userId);
       
       if (!subscriptionStatus) {
