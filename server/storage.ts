@@ -439,8 +439,7 @@ export class WorkingStorage implements IStorage {
         .insert(subscriptions)
         .values({
           ...subscription,
-          lastVerified: new Date(),
-          updatedAt: new Date()
+          lastVerified: new Date()
         })
         .returning();
       return newSubscription;
@@ -451,8 +450,7 @@ export class WorkingStorage implements IStorage {
         id: Date.now(),
         ...subscription,
         lastVerified: new Date(),
-        createdAt: new Date(),
-        updatedAt: new Date()
+        createdAt: new Date()
       };
       return newSubscription;
     }
@@ -464,8 +462,7 @@ export class WorkingStorage implements IStorage {
         .update(subscriptions)
         .set({
           ...updates,
-          lastVerified: new Date(),
-          updatedAt: new Date()
+          lastVerified: new Date()
         })
         .where(eq(subscriptions.userId, userId))
         .returning();
@@ -482,8 +479,7 @@ export class WorkingStorage implements IStorage {
       await db
         .update(subscriptions)
         .set({ 
-          lastVerified: new Date(),
-          updatedAt: new Date() 
+          lastVerified: new Date()
         })
         .where(and(
           eq(subscriptions.userId, userId),
