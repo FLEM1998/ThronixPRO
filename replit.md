@@ -8,7 +8,15 @@ ThronixPRO is a professional live cryptocurrency trading platform for real money
 
 Preferred communication style: Simple, everyday language.
 
-## Recent Production Enhancements (January 2025)
+## Recent Production Enhancements (August 2025)
+
+- **AI Strategy Engine Integration**: Added Flask-based microservice with GPT-4 and machine learning capabilities
+- **Advanced ML Predictions**: Random Forest classifier for buy/sell/hold decisions with confidence scoring
+- **Microservice Architecture**: Scalable AI service on port 5001 with Docker containerization
+- **Enhanced Trading Intelligence**: Context-aware strategy suggestions and market analysis
+- **Fallback Mechanisms**: Robust system continues operating even if AI service is unavailable
+
+## Previous Production Enhancements (January 2025)
 
 - **Security Hardening**: Added comprehensive security middleware with rate limiting, CSRF protection, and audit logging
 - **Testing Infrastructure**: Implemented Jest testing framework with unit tests for authentication and trading logic
@@ -58,7 +66,7 @@ The application is a monorepo built with a clear separation of client and server
 - **Real Exchange Integration**: Direct API connections with Binance, KuCoin, and Bybit using CCXT library for live order management, portfolio tracking, and market data.
 - **Authentication**: Secure JWT tokens, bcrypt password hashing, HTTP-only cookies, and email verification via Resend.
 - **Live Trading**: Supports real order placement, tracking, and cancellation; automated trading bots; position tracking with real-time P&L; and order alerts. All operations use actual cryptocurrency funds.
-- **AI Integration**: Context-aware AI trading assistant provides live market analysis, symbol-specific strategy suggestions, and real-time advice. AI continuously learns from trade outcomes to optimize for maximum percentage gains, utilizing extensive market data.
+- **Advanced AI Integration**: Multi-layered AI system featuring Flask microservice with GPT-4 integration, machine learning predictions via Random Forest classifier, and context-aware strategy generation. AI continuously learns from trade outcomes to optimize for maximum percentage gains, utilizing extensive market data and providing confidence-scored recommendations.
 - **Data Integrity**: Database schema designed for high-frequency trading operations with proper indexing and foreign key references.
 - **Security**: Encrypted storage of exchange API credentials, robust authentication, and mandatory legal disclaimers.
 - **UI/UX**: Dynamic page titles for SEO, responsive design, and a professional interface emphasizing real-money trading with clear indicators.
