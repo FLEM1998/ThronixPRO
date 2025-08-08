@@ -11,8 +11,6 @@ import AdvancedTrading from "@/pages/AdvancedTrading";
 import AdvancedBots from "@/pages/AdvancedBots";
 import Login from "@/pages/login";
 import DownloadPage from "@/pages/download";
-import Analytics from "@/pages/analytics";
-import Support from "@/pages/support";
 import Register from "@/pages/register";
 import ForgotPassword from "@/pages/forgot-password";
 import ResetPassword from "@/pages/reset-password";
@@ -78,14 +76,6 @@ function Router() {
       </Route>
       <Route path="/advanced-bots">
         {user ? <AdvancedBots /> : <Login />}
-      </Route>
-      {/* Analytics page for portfolio reports */}
-      <Route path="/analytics">
-        {user ? <Analytics /> : <Login />}
-      </Route>
-      {/* Support page for helpdesk tickets */}
-      <Route path="/support">
-        {user ? <Support /> : <Login />}
       </Route>
       <Route path="/download">
         <DownloadPage />
