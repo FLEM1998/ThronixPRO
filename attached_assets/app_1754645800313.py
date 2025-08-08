@@ -1,3 +1,4 @@
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import openai
@@ -83,18 +84,14 @@ def strategy_suggestion():
         return jsonify({"error": "Monthly AI usage limit reached. Try again next month."}), 403
 
     gpt_prompt = f"Suggest a trading strategy for {symbol}. BTC change: {btc_change}%, ETH change: {eth_change}%. Current strategy: {current}"
-    
-    from openai import OpenAI
-    client = OpenAI(api_key=openai.api_key)
-    
-    response = client.chat.completions.create(
+    response = openai.ChatCompletion.create(
         model="gpt-4o",
         messages=[
             {"role": "system", "content": "You are a crypto trading expert."},
             {"role": "user", "content": gpt_prompt}
         ]
     )
-    ai_strategy = response.choices[0].message.content
+    ai_strategy = response['choices'][0]['message']['content']
 
     X = [[btc_change, eth_change]]
     prediction = model.predict(X)[0]
@@ -122,4 +119,4 @@ def health():
     return jsonify({"status": "ok"})
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5001)
+    app.run(host="0.0.0.0", port=5000)

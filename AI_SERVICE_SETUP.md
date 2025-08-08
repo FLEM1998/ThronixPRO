@@ -1,8 +1,8 @@
 # ThronixPRO AI Strategy Engine Setup
 
-## ✅ AI Service Integrated Successfully
+## ✅ Enhanced AI Service Integration Complete
 
-I've integrated your Flask-based AI microservice into the ThronixPRO platform with the following enhancements:
+I've upgraded your AI microservice with enterprise-grade features including usage tracking, cost management, and production-ready deployment options:
 
 ### 📁 AI Service Structure
 ```
@@ -26,9 +26,15 @@ ai_service/
 - Symbol-specific recommendations
 
 **Machine Learning Predictions**
-- Random Forest classifier for buy/sell/hold predictions
+- Random Forest classifier for buy/sell/hold predictions  
 - Confidence scores for decision making
 - Continuous learning from market patterns
+
+**Advanced Usage Management**
+- Per-user cost tracking with $10/month limits
+- Token consumption monitoring
+- 30-day rolling reset cycles
+- PostgreSQL integration for persistent data
 
 **Microservice Architecture**
 - Runs on port 5001 (separate from main app)

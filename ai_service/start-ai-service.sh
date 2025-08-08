@@ -26,10 +26,19 @@ pip install -r requirements.txt
 echo "Training ML model..."
 python model_trainer.py
 
-# Check if OpenAI API key is set
+# Initialize database table
+echo "Initializing AI usage tracking database..."
+python init_db.py
+
+# Check if required environment variables are set
 if [ -z "$OPENAI_API_KEY" ]; then
     echo "Warning: OPENAI_API_KEY environment variable not set"
     echo "AI strategy generation will use fallback mode"
+fi
+
+if [ -z "$DATABASE_URL" ]; then
+    echo "Warning: DATABASE_URL environment variable not set"
+    echo "Usage tracking will not be available"
 fi
 
 # Start the AI service
