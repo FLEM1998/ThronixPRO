@@ -2644,7 +2644,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ message: 'KYC submission received. Verification will be processed shortly.' });
     } catch (error: any) {
       console.error('KYC submission error:', error);
-      res.status(500).json({ error: 'Failed to submit KYC data' });
+      res.status(500).json({ error: 'Failed to submit KYC' });
     }
   });
 
