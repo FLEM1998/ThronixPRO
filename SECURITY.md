@@ -137,8 +137,8 @@ We believe in recognizing security researchers who help improve our platform:
 
 - **Security Team**: support@thronixpro.co.uk
 - **PGP Key**: Available at keybase.io/thronixpro
-- **Security Page**: https://thronixpro.com/security
-- **Bug Bounty**: https://hackerone.com/thronixpro
+- **Security Page**: https://www.thronixpro.co.uk/security
+- **Bug Bounty**: https://www.thronixpro.co.uk/bug-bounty
 
 ## ⚖️ Legal
 
