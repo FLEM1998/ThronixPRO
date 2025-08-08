@@ -1,2 +1,0 @@
-OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxx
-DATABASE_URL=postgresql://user:pass@host:port/dbname
