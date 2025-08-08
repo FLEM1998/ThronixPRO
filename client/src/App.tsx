@@ -77,10 +77,12 @@ function Router() {
       </Route>
       <Route path="/advanced-bots">
 
+              {user ? <AdvancedBots /> : <Login />}
       </Route>
-      <Route path="/download">
-        <DownloadPage />
-      </Route>
+     <Route path="/download">
+              <DownloadPage />
+            </Route>
+       
       <Route path="/">
         {user ? <Dashboard /> : <Login />}
       </Route>
