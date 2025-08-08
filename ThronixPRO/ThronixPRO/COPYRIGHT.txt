@@ -1,0 +1,44 @@
+ThronixPRO Professional Cryptocurrency Trading Platform
+Copyright (c) 2024-2025 FLEM1998
+
+This software and associated documentation files (the "Software") are protected by copyright law and international treaties. 
+
+The Software includes proprietary trading algorithms, AI-powered strategies, and custom implementations for cryptocurrency exchange integrations. All rights are reserved by the copyright holder.
+
+OWNERSHIP:
+- Original Author: FLEM1998
+- Repository: https://github.com/FLEM1998/ThronixPROapp
+- Development Platform: Replit.com
+
+LICENSING:
+This Software is licensed under the MIT License. See the LICENSE file for complete terms and conditions.
+
+THIRD-PARTY COMPONENTS:
+This Software incorporates various open-source components, each governed by their respective licenses:
+- React (MIT License)
+- Node.js (MIT License) 
+- Express.js (MIT License)
+- TypeScript (Apache License 2.0)
+- PostgreSQL (PostgreSQL License)
+- And other dependencies as listed in package.json
+
+DISCLAIMER:
+This software facilitates real cryptocurrency trading with actual funds. Trading cryptocurrencies involves substantial risk of loss and is not suitable for all investors. The copyright holder and contributors provide this software "as is" without warranty of any kind.
+
+Users are solely responsible for:
+- Their trading decisions and financial outcomes
+- Compliance with applicable laws and regulations
+- Proper security configuration and API key management
+- Understanding the risks involved in cryptocurrency trading
+
+SUPPORT:
+For copyright, licensing, or legal inquiries, contact:
+Email: support@thronixpro.co.uk
+GitHub: @FLEM1998
+
+COPYRIGHT NOTICE:
+Copyright notices must be preserved in all copies or substantial portions of the Software. Commercial use, modification, and distribution are permitted under the MIT License terms.
+
+This copyright notice and permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.

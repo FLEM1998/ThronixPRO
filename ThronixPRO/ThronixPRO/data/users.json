@@ -1,0 +1,41 @@
+[
+  {
+    "id": 1,
+    "name": "Safe Storage User",
+    "email": "safe@thronix.com",
+    "password": "$2b$10$4qkfp4O.mnuDa2JnNtgmY.6n06LU3Ul2xRcPWjEYJMKutmnmNnX.a",
+    "emailVerified": false,
+    "verificationToken": null,
+    "verificationExpires": null,
+    "passwordResetToken": null,
+    "passwordResetExpires": null,
+    "createdAt": "2025-07-30T10:28:09.165Z",
+    "updatedAt": "2025-07-30T10:28:09.165Z"
+  },
+  {
+    "id": 2,
+    "name": "Persistent Test",
+    "email": "persist@thronix.com",
+    "password": "$2b$10$J9Q4q7tBlCRsal1qdnxV3et8gWOnnnTKQQ1MZYaFCmKiddW91/q/O",
+    "emailVerified": false,
+    "verificationToken": null,
+    "verificationExpires": null,
+    "passwordResetToken": null,
+    "passwordResetExpires": null,
+    "createdAt": "2025-07-30T10:28:11.605Z",
+    "updatedAt": "2025-07-30T10:28:11.605Z"
+  },
+  {
+    "id": 3,
+    "name": "Liss",
+    "email": "Flemcoin.01@gmail.com",
+    "password": "$2b$10$ksH1Xd5liATc7UmpPn6aq.h8jJc0.UxpOhYtUwT4gmGBwh68Hca7u",
+    "emailVerified": false,
+    "verificationToken": null,
+    "verificationExpires": null,
+    "passwordResetToken": null,
+    "passwordResetExpires": null,
+    "createdAt": "2025-07-30T10:34:42.838Z",
+    "updatedAt": "2025-07-30T10:34:42.838Z"
+  }
+]
