@@ -32,13 +32,10 @@ const authenticate = async (req: any, res: any, next: any) => {
 
 const router = Router();
 
-// Apply authentication to all bot routes
-router.use(authenticate);
-
 /**
  * Start an advanced AI trading bot
  */
-router.post('/ai/bot/start', async (req: Request, res: Response) => {
+router.post('/ai/bot/start', authenticate, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
     const { botId, symbol, riskLevel } = req.body;
@@ -87,7 +84,7 @@ router.post('/ai/bot/start', async (req: Request, res: Response) => {
 /**
  * Stop an AI trading bot
  */
-router.post('/ai/bot/stop', async (req: Request, res: Response) => {
+router.post('/ai/bot/stop', authenticate, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
     const { botId, symbol } = req.body;
@@ -130,7 +127,7 @@ router.post('/ai/bot/stop', async (req: Request, res: Response) => {
 /**
  * Get bot performance analytics
  */
-router.get('/ai/bot/:botId/performance', async (req: Request, res: Response) => {
+router.get('/ai/bot/:botId/performance', authenticate, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
     const botId = parseInt(req.params.botId);
@@ -167,7 +164,7 @@ router.get('/ai/bot/:botId/performance', async (req: Request, res: Response) => 
 /**
  * Get bot execution logs
  */
-router.get('/ai/bot/:botId/logs', async (req: Request, res: Response) => {
+router.get('/ai/bot/:botId/logs', authenticate, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
     const botId = parseInt(req.params.botId);
@@ -214,7 +211,7 @@ router.get('/ai/bot/:botId/logs', async (req: Request, res: Response) => {
 /**
  * Get available trading strategies
  */
-router.get('/ai/strategies', async (req: Request, res: Response) => {
+router.get('/ai/strategies', authenticate, async (req: Request, res: Response) => {
   try {
     const strategies = await db.select()
       .from(strategyLibrary)
@@ -243,7 +240,7 @@ router.get('/ai/strategies', async (req: Request, res: Response) => {
 /**
  * Get all active bots for the user
  */
-router.get('/ai/bots/active', async (req: Request, res: Response) => {
+router.get('/ai/bots/active', authenticate, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
     
@@ -278,7 +275,7 @@ router.get('/ai/bots/active', async (req: Request, res: Response) => {
 /**
  * Get comprehensive bot analytics dashboard
  */
-router.get('/ai/analytics/dashboard', async (req: Request, res: Response) => {
+router.get('/ai/analytics/dashboard', authenticate, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
     
@@ -343,7 +340,7 @@ router.get('/ai/analytics/dashboard', async (req: Request, res: Response) => {
 /**
  * Emergency stop all bots
  */
-router.post('/ai/bots/emergency-stop', async (req: Request, res: Response) => {
+router.post('/ai/bots/emergency-stop', authenticate, async (req: Request, res: Response) => {
   try {
     const userId = (req as any).user.id;
     
