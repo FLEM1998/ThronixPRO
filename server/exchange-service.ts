@@ -180,6 +180,34 @@ export class ExchangeService {
     }
   }
 
+  public async testConnection(exchangeName: string, credentials: { apiKey: string; secret: string; sandbox?: boolean }): Promise<{ success: boolean; error?: string }> {
+    try {
+      // Create a temporary exchange instance for testing
+      const ExchangeClass = ccxt[exchangeName as keyof typeof ccxt] as any;
+      if (!ExchangeClass) {
+        return { success: false, error: `Exchange ${exchangeName} not supported` };
+      }
+
+      const exchange = new ExchangeClass({
+        apiKey: this.decrypt(credentials.apiKey),
+        secret: this.decrypt(credentials.secret),
+        sandbox: credentials.sandbox || false,
+        enableRateLimit: true
+      });
+
+      // Test the connection by fetching account balance
+      await exchange.fetchBalance();
+      
+      return { success: true };
+    } catch (error: any) {
+      console.error(`Exchange ${exchangeName} connection test failed:`, error.message);
+      return { 
+        success: false, 
+        error: error.message || 'Connection test failed' 
+      };
+    }
+  }
+
   public async getTicker(userId: number, exchange: string, symbol: string): Promise<ExchangeTicker> {
     const exchangeInstance = this.exchanges.get(`${userId}-${exchange}`);
     if (!exchangeInstance) {

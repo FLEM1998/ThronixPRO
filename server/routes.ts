@@ -730,7 +730,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // AI Master Bot start endpoint
+  // AI Master Bot start endpoint - REQUIRES REAL EXCHANGE CONNECTION
   app.put('/api/trading-bots/:id/start', authenticate, async (req: any, res) => {
     try {
       const botId = parseInt(req.params.id);
@@ -741,7 +741,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: 'Trading bot not found' });
       }
 
-      console.log(`AI Master Bot ${botId}: Starting trading for user ${userId}`);
+      // CRITICAL SAFETY CHECK: Verify user has connected and verified exchange APIs
+      console.log(`AI Master Bot ${botId}: Checking exchange connections before starting trading for user ${userId}`);
+      
+      const exchangeConnections = await storage.getUserExchangeConnections(userId);
+      if (!exchangeConnections || exchangeConnections.length === 0) {
+        console.log(`AI Master Bot ${botId}: BLOCKED - No exchange connections found for user ${userId}`);
+        return res.status(400).json({ 
+          error: 'EXCHANGE_CONNECTION_REQUIRED',
+          message: 'AI Master Bot requires connected exchange APIs to trade with real money. Please connect your exchange accounts first.',
+          requiredAction: 'Connect at least one exchange API (KuCoin, Binance, or Bybit) in Settings'
+        });
+      }
+
+      // Verify at least one exchange connection is active and has valid credentials
+      let hasValidConnection = false;
+      for (const connection of exchangeConnections) {
+        try {
+          if (connection.apiKey && connection.apiSecret) {
+            // Test the exchange connection
+            const testResult = await exchangeService.testConnection(connection.exchange, {
+              apiKey: connection.apiKey,
+              secret: connection.apiSecret,
+              sandbox: false
+            });
+            if (testResult.success) {
+              hasValidConnection = true;
+              console.log(`AI Master Bot ${botId}: Valid ${connection.exchange} connection verified for user ${userId}`);
+              break;
+            }
+          }
+        } catch (testError) {
+          console.log(`AI Master Bot ${botId}: ${connection.exchange} connection test failed for user ${userId}:`, testError);
+        }
+      }
+
+      if (!hasValidConnection) {
+        console.log(`AI Master Bot ${botId}: BLOCKED - No valid exchange connections for user ${userId}`);
+        return res.status(400).json({ 
+          error: 'EXCHANGE_CONNECTION_INVALID',
+          message: 'AI Master Bot requires valid exchange API credentials to trade safely. Please verify your exchange connections.',
+          requiredAction: 'Test and verify your exchange API credentials in Settings'
+        });
+      }
+
+      console.log(`AI Master Bot ${botId}: Exchange verification passed - Starting trading for user ${userId}`);
       
       // Start the AI trading strategy
       await aiTradingService.executeTradingStrategy(userId, botId);
@@ -750,9 +794,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const updatedBot = await storage.updateTradingBot(botId, { status: 'running' });
       
       res.json({ 
-        message: "AI Master Bot started successfully",
+        message: "AI Master Bot started successfully with verified exchange connections",
         status: "running",
-        bot: updatedBot
+        bot: updatedBot,
+        exchangeVerified: true
       });
     } catch (error: any) {
       console.error("Error starting AI Master Bot:", error);

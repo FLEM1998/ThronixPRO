@@ -33,7 +33,7 @@ const authenticate = async (req: any, res: any, next: any) => {
 const router = Router();
 
 /**
- * Start an advanced AI trading bot
+ * Start an advanced AI trading bot - REQUIRES REAL EXCHANGE CONNECTION
  */
 router.post('/ai/bot/start', authenticate, async (req: Request, res: Response) => {
   try {
@@ -54,6 +54,44 @@ router.post('/ai/bot/start', authenticate, async (req: Request, res: Response) =
       });
     }
 
+    // CRITICAL SAFETY CHECK: Verify user has connected and verified exchange APIs
+    console.log(`Advanced AI Bot ${botId}: Checking exchange connections before starting trading for user ${userId}`);
+    
+    const exchangeConnections = await storage.getUserExchangeConnections(userId);
+    if (!exchangeConnections || exchangeConnections.length === 0) {
+      console.log(`Advanced AI Bot ${botId}: BLOCKED - No exchange connections found for user ${userId}`);
+      return res.status(400).json({ 
+        error: 'EXCHANGE_CONNECTION_REQUIRED',
+        message: 'Advanced AI bot requires connected exchange APIs to trade with real money. Please connect your exchange accounts first.',
+        requiredAction: 'Connect at least one exchange API (KuCoin, Binance, or Bybit) in Settings'
+      });
+    }
+
+    // Verify at least one exchange connection is active and has valid credentials
+    let hasValidConnection = false;
+    for (const connection of exchangeConnections) {
+      try {
+        if (connection.apiKey && connection.apiSecret) {
+          hasValidConnection = true;
+          console.log(`Advanced AI Bot ${botId}: Valid ${connection.exchange} connection found for user ${userId}`);
+          break;
+        }
+      } catch (testError) {
+        console.log(`Advanced AI Bot ${botId}: ${connection.exchange} connection test failed for user ${userId}:`, testError);
+      }
+    }
+
+    if (!hasValidConnection) {
+      console.log(`Advanced AI Bot ${botId}: BLOCKED - No valid exchange connections for user ${userId}`);
+      return res.status(400).json({ 
+        error: 'EXCHANGE_CONNECTION_INVALID',
+        message: 'Advanced AI bot requires valid exchange API credentials to trade safely. Please verify your exchange connections.',
+        requiredAction: 'Test and verify your exchange API credentials in Settings'
+      });
+    }
+
+    console.log(`Advanced AI Bot ${botId}: Exchange verification passed - Starting trading for ${symbol} for user ${userId}`);
+
     const success = await advancedBotService.startAdvancedBot(
       userId, 
       botId, 
@@ -64,9 +102,10 @@ router.post('/ai/bot/start', authenticate, async (req: Request, res: Response) =
     if (success) {
       res.json({ 
         status: 'success',
-        message: `Advanced AI bot started for ${symbol}`,
+        message: `Advanced AI bot started for ${symbol} with verified exchange connections`,
         botId,
-        riskLevel: riskLevel || 'medium'
+        riskLevel: riskLevel || 'medium',
+        exchangeVerified: true
       });
     } else {
       res.status(400).json({ 

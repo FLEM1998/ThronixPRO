@@ -30,6 +30,7 @@ export interface IStorage {
   // Trading Bots
   getTradingBotsByUserId(userId: number): Promise<TradingBot[]>;
   getTradingBot(id: number): Promise<TradingBot | undefined>;
+  getTradingBotById(id: number): Promise<TradingBot | undefined>;
   createTradingBot(bot: InsertTradingBot): Promise<TradingBot>;
   updateTradingBot(id: number, updates: Partial<TradingBot>): Promise<TradingBot | undefined>;
   deleteTradingBot(id: number): Promise<boolean>;
@@ -40,8 +41,9 @@ export interface IStorage {
   createPosition(position: InsertPosition): Promise<Position>;
   updatePosition(id: number, updates: Partial<Position>): Promise<Position | undefined>;
   
-  // API Keys
+  // API Keys / Exchange Connections
   getApiKeysByUserId(userId: number): Promise<ApiKey[]>;
+  getUserExchangeConnections(userId: number): Promise<ApiKey[]>;
   createApiKey(apiKey: InsertApiKey): Promise<ApiKey>;
   deleteApiKey(id: number): Promise<boolean>;
   
@@ -196,6 +198,11 @@ export class WorkingStorage implements IStorage {
     );
   }
 
+  async getTradingBotById(id: number): Promise<TradingBot | undefined> {
+    // Same implementation as getTradingBot
+    return this.getTradingBot(id);
+  }
+
   async createTradingBot(insertBot: any): Promise<TradingBot> {
     return this.executeWithFallback(
       async () => {
@@ -270,6 +277,11 @@ export class WorkingStorage implements IStorage {
       async () => await db.select().from(apiKeys).where(eq(apiKeys.userId, userId)),
       async () => persistentStorage.getApiKeysByUserId(userId)
     );
+  }
+
+  async getUserExchangeConnections(userId: number): Promise<ApiKey[]> {
+    // Same as getApiKeysByUserId - API keys represent exchange connections
+    return this.getApiKeysByUserId(userId);
   }
 
   async createApiKey(insertApiKey: InsertApiKey): Promise<ApiKey> {
