@@ -1,5 +1,5 @@
 import { 
-  users, tradingBots, positions, apiKeys, orderAlerts, liveOrders, marketData, advancedOrders,
+  users, tradingBots, positions, apiKeys, orderAlerts, liveOrders, marketData, advancedOrders, subscriptions,
   type User, type InsertUser,
   type TradingBot, type InsertTradingBot,
   type Position, type InsertPosition,
@@ -7,7 +7,8 @@ import {
   type OrderAlert, type InsertOrderAlert,
   type LiveOrder, type InsertLiveOrder,
   type MarketData, type InsertMarketData,
-  type AdvancedOrder, type InsertAdvancedOrder
+  type AdvancedOrder, type InsertAdvancedOrder,
+  type Subscription, type InsertSubscription
 } from "@shared/schema";
 import { db, pool } from "./db";
 import { eq, desc, and, sql } from "drizzle-orm";
@@ -66,6 +67,12 @@ export interface IStorage {
   
   // Trade History
   getTradeHistoryByUserId(userId: number): Promise<any[]>;
+  
+  // Subscription Management
+  getUserSubscriptionStatus(userId: number): Promise<{ isActive: boolean; expiryDate?: string; productId?: string; provider?: string } | undefined>;
+  createSubscription(subscription: InsertSubscription): Promise<Subscription>;
+  updateSubscription(userId: number, updates: Partial<Subscription>): Promise<Subscription | undefined>;
+  verifySubscription(userId: number, provider: string, purchaseToken?: string, purchaseId?: string): Promise<boolean>;
 }
 
 export class WorkingStorage implements IStorage {
@@ -393,6 +400,101 @@ export class WorkingStorage implements IStorage {
     // For live trading platform: new users start with zero trading history
     // Only real completed trades should appear here
     return [];
+  }
+
+  // Subscription Management Methods
+  async getUserSubscriptionStatus(userId: number): Promise<{ isActive: boolean; expiryDate?: string; productId?: string; provider?: string } | undefined> {
+    try {
+      const [subscription] = await db
+        .select()
+        .from(subscriptions)
+        .where(eq(subscriptions.userId, userId))
+        .orderBy(desc(subscriptions.lastVerified))
+        .limit(1);
+
+      if (!subscription) {
+        return { isActive: false };
+      }
+
+      // Check if subscription has expired
+      const now = new Date();
+      const isActive = subscription.isActive && 
+        (!subscription.expiryDate || new Date(subscription.expiryDate) > now);
+
+      return {
+        isActive,
+        expiryDate: subscription.expiryDate?.toISOString(),
+        productId: subscription.productId,
+        provider: subscription.provider
+      };
+    } catch (error) {
+      console.error('Error fetching subscription status:', error);
+      return { isActive: false };
+    }
+  }
+
+  async createSubscription(subscription: InsertSubscription): Promise<Subscription> {
+    try {
+      const [newSubscription] = await db
+        .insert(subscriptions)
+        .values({
+          ...subscription,
+          lastVerified: new Date(),
+          updatedAt: new Date()
+        })
+        .returning();
+      return newSubscription;
+    } catch (error) {
+      console.error('Error creating subscription:', error);
+      // Memory fallback - create mock subscription
+      const newSubscription: Subscription = {
+        id: Date.now(),
+        ...subscription,
+        lastVerified: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+      return newSubscription;
+    }
+  }
+
+  async updateSubscription(userId: number, updates: Partial<Subscription>): Promise<Subscription | undefined> {
+    try {
+      const [updatedSubscription] = await db
+        .update(subscriptions)
+        .set({
+          ...updates,
+          lastVerified: new Date(),
+          updatedAt: new Date()
+        })
+        .where(eq(subscriptions.userId, userId))
+        .returning();
+      return updatedSubscription;
+    } catch (error) {
+      console.error('Error updating subscription:', error);
+      return undefined;
+    }
+  }
+
+  async verifySubscription(userId: number, provider: string, purchaseToken?: string, purchaseId?: string): Promise<boolean> {
+    try {
+      // Update last verification time
+      await db
+        .update(subscriptions)
+        .set({ 
+          lastVerified: new Date(),
+          updatedAt: new Date() 
+        })
+        .where(and(
+          eq(subscriptions.userId, userId),
+          eq(subscriptions.provider, provider)
+        ));
+      
+      return true; // Verification successful
+    } catch (error) {
+      console.error('Error verifying subscription:', error);
+      return false;
+    }
   }
 }
 

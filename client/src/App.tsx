@@ -3,6 +3,8 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { SubscriptionLockout } from "@/components/subscription-lockout";
+import { useSubscriptionStatus } from "@/hooks/use-subscription-status";
 import Dashboard from "@/pages/dashboard";
 import Charts from "@/pages/Charts";
 import AdvancedTrading from "@/pages/AdvancedTrading";
@@ -19,6 +21,7 @@ import { useEffect } from "react";
 
 function Router() {
   const { user, loading } = useAuth();
+  const { subscriptionStatus, isLoading: isLoadingSubscription } = useSubscriptionStatus();
   const [pathname, setLocation] = useLocation();
 
   // Redirect authenticated users away from auth pages
@@ -28,12 +31,17 @@ function Router() {
     }
   }, [user, pathname, setLocation]);
 
-  if (loading) {
+  if (loading || (user && isLoadingSubscription)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
         <div className="text-xl text-white">Loading...</div>
       </div>
     );
+  }
+
+  // MANDATORY SUBSCRIPTION LOCKOUT - Block access if not subscribed
+  if (user && subscriptionStatus && !subscriptionStatus.isActive) {
+    return <SubscriptionLockout onRetryPayment={() => window.location.reload()} />;
   }
 
   return (

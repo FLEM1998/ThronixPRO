@@ -384,3 +384,31 @@ export const resetPasswordSchema = z.object({
   message: "Passwords don't match",
   path: ["confirmPassword"],
 });
+
+// Subscription Management Schema
+export const subscriptions = pgTable("subscriptions", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  provider: text("provider").notNull(), // 'huawei', 'samsung', 'web'
+  productId: text("product_id").notNull(),
+  purchaseToken: text("purchase_token"),
+  purchaseId: text("purchase_id"),
+  isActive: boolean("is_active").default(false).notNull(),
+  expiryDate: timestamp("expiry_date"),
+  lastVerified: timestamp("last_verified").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  userIdIdx: index("subscriptions_user_id_idx").on(table.userId),
+  providerIdx: index("subscriptions_provider_idx").on(table.provider),
+  activeIdx: index("subscriptions_active_idx").on(table.isActive),
+}));
+
+export const insertSubscriptionSchema = createInsertSchema(subscriptions).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type Subscription = typeof subscriptions.$inferSelect;
+export type InsertSubscription = z.infer<typeof insertSubscriptionSchema>;

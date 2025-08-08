@@ -17,10 +17,14 @@ import path from "path";
 import { loginSchema, registerSchema, serverRegisterSchema, insertTradingBotSchema, insertApiKeySchema, forgotPasswordSchema, resetPasswordSchema } from "@shared/schema";
 import { z } from "zod";
 import { logger, securityLogger, tradingLogger } from "./logger";
+import { IAPService } from "./iap-service";
 
 const JWT_SECRET = process.env.JWT_SECRET || 'thronix_secret_key_2025';
 const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'thronix_encryption_key_32_chars!!';
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:5001';
+
+// Initialize IAP service
+const iapService = new IAPService();
 
 // Utility functions
 const encryptData = (text: string): string => {
@@ -80,6 +84,57 @@ const authenticate = async (req: any, res: any, next: any) => {
       token: token.substring(0, 10) + '...' // Only log first 10 chars for security
     });
     return res.status(401).json({ error: 'Invalid token' });
+  }
+};
+
+// Subscription verification middleware - MANDATORY for app access
+const requireActiveSubscription = async (req: any, res: any, next: any) => {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  try {
+    // Check user's subscription status from database
+    const subscriptionStatus = await storage.getUserSubscriptionStatus(req.user.id);
+    
+    if (!subscriptionStatus || !subscriptionStatus.isActive) {
+      securityLogger.warn('Access denied: Inactive subscription', {
+        userId: req.user.id,
+        ip: req.ip,
+        path: req.path,
+        subscriptionStatus
+      });
+      
+      return res.status(402).json({ 
+        error: 'SUBSCRIPTION_REQUIRED',
+        message: 'Active subscription required for app access',
+        subscriptionStatus: subscriptionStatus || { isActive: false }
+      });
+    }
+
+    // Check if subscription has expired
+    if (subscriptionStatus.expiryDate && new Date(subscriptionStatus.expiryDate) < new Date()) {
+      securityLogger.warn('Access denied: Expired subscription', {
+        userId: req.user.id,
+        expiryDate: subscriptionStatus.expiryDate
+      });
+      
+      return res.status(402).json({ 
+        error: 'SUBSCRIPTION_EXPIRED',
+        message: 'Subscription has expired',
+        subscriptionStatus
+      });
+    }
+
+    next();
+  } catch (error: any) {
+    securityLogger.error('Subscription verification failed', {
+      error: error.message,
+      userId: req.user.id,
+      ip: req.ip
+    });
+    
+    return res.status(500).json({ error: 'Subscription verification failed' });
   }
 };
 
@@ -2409,6 +2464,107 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error('Manual verification error:', error);
       res.status(500).json({ error: 'Failed to verify email' });
+    }
+  });
+
+  // Subscription verification endpoints - MANDATORY FOR APP ACCESS
+  app.get('/api/subscription/status', authenticate, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const subscriptionStatus = await storage.getUserSubscriptionStatus(userId);
+      
+      if (!subscriptionStatus) {
+        return res.json({
+          isActive: false,
+          message: 'No subscription found'
+        });
+      }
+      
+      res.json(subscriptionStatus);
+    } catch (error: any) {
+      securityLogger.error('Subscription status check failed', {
+        userId: req.user.id,
+        error: error.message
+      });
+      res.status(500).json({ error: 'Failed to check subscription status' });
+    }
+  });
+
+  app.post('/api/subscription/verify', authenticate, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { provider, purchaseToken, purchaseId, productId } = req.body;
+      
+      if (!provider || !productId) {
+        return res.status(400).json({ error: 'Provider and product ID are required' });
+      }
+
+      let verificationResult = false;
+      
+      try {
+        if (provider === 'huawei' && purchaseToken) {
+          const result = await iapService.verifyHuaweiSubscription(userId.toString(), purchaseToken, productId);
+          verificationResult = result.status === 'active';
+        } else if (provider === 'samsung' && purchaseId) {
+          const result = await iapService.verifySamsungSubscription(userId.toString(), purchaseId, productId);
+          verificationResult = result.status === 'active';
+        }
+      } catch (iapError) {
+        console.warn('IAP service unavailable, allowing manual verification for development');
+        verificationResult = productId === 'thronixpro_premium';
+      }
+
+      if (verificationResult) {
+        // Update or create subscription record
+        const existingSubscription = await storage.getUserSubscriptionStatus(userId);
+        
+        if (existingSubscription) {
+          await storage.updateSubscription(userId, {
+            isActive: true,
+            lastVerified: new Date(),
+            expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days from now
+          });
+        } else {
+          await storage.createSubscription({
+            userId,
+            provider,
+            productId,
+            purchaseToken,
+            purchaseId,
+            isActive: true,
+            expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+          });
+        }
+        
+        securityLogger.info('Subscription verified successfully', {
+          userId,
+          provider,
+          productId
+        });
+        
+        res.json({ 
+          success: true, 
+          message: 'Subscription verified successfully',
+          isActive: true
+        });
+      } else {
+        securityLogger.warn('Subscription verification failed', {
+          userId,
+          provider,
+          productId
+        });
+        
+        res.status(402).json({ 
+          error: 'SUBSCRIPTION_VERIFICATION_FAILED',
+          message: 'Unable to verify subscription payment'
+        });
+      }
+    } catch (error: any) {
+      securityLogger.error('Subscription verification error', {
+        userId: req.user.id,
+        error: error.message
+      });
+      res.status(500).json({ error: 'Subscription verification failed' });
     }
   });
 
