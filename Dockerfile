@@ -1,41 +1,26 @@
-# ---------- Base build stage ----------
-FROM node:20-alpine AS builder
-
-# Install build tools
-RUN apk add --no-cache python3 make g++
-
-# Set working directory
+# Multi-stage Dockerfile for Render
+FROM node:20-alpine AS deps
 WORKDIR /app
-
-# Copy dependency manifests
 COPY package*.json ./
 COPY tsconfig.json ./
+RUN npm ci --ignore-scripts
 
-# Install ALL dependencies (including devDependencies)
-RUN npm ci --silent
-
-# Copy full project into container
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-
-# Build the app (includes vite + esbuild)
+# Build client (Vite) and server (esbuild)
 RUN npm run build
 
-# ---------- Production image ----------
-FROM node:20-alpine AS production
-
-# Create app user
-RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
-
-# Set working directory
+FROM node:20-alpine AS runner
 WORKDIR /app
-
-# Copy only built output and dependencies
+ENV NODE_ENV=production
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && adduser -S node -u 1001
+# Copy only what we need
+COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/package*.json ./
-
-# Expose port
+USER node
 EXPOSE 3000
-
-# Start the app
-CMD ["node", "dist/index.js"]
+CMD ["node","dist/index.js"]
