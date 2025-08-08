@@ -8,6 +8,7 @@ import { useSubscriptionStatus } from "@/hooks/use-subscription-status";
 import Dashboard from "@/pages/dashboard";
 import Charts from "@/pages/Charts";
 import AdvancedTrading from "@/pages/AdvancedTrading";
+import AdvancedBots from "@/pages/AdvancedBots";
 import Login from "@/pages/login";
 import DownloadPage from "@/pages/download";
 import Register from "@/pages/register";
@@ -72,6 +73,9 @@ function Router() {
       </Route>
       <Route path="/advanced-trading">
         {user ? <AdvancedTrading /> : <Login />}
+      </Route>
+      <Route path="/advanced-bots">
+        {user ? <AdvancedBots /> : <Login />}
       </Route>
       <Route path="/advanced-bots">
         {user ? <Dashboard /> : <Login />}

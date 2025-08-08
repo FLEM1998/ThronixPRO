@@ -412,3 +412,95 @@ export const insertSubscriptionSchema = createInsertSchema(subscriptions).omit({
 
 export type Subscription = typeof subscriptions.$inferSelect;
 export type InsertSubscription = z.infer<typeof insertSubscriptionSchema>;
+export type SubscriptionUpdate = Partial<Pick<Subscription, 'isActive' | 'expiryDate' | 'lastVerified'>>;
+
+// AI Bot Logs for performance tracking and strategy optimization
+export const aiBotLogs = pgTable("ai_bot_logs", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  botId: integer("bot_id").references(() => tradingBots.id),
+  coin: text("coin").notNull(),
+  strategy: text("strategy", { mode: 'json' }).$type<{
+    type: string;
+    parameters: Record<string, any>;
+    confidence: number;
+  }>(),
+  signal: text("signal").notNull(), // 'buy', 'sell', 'hold'
+  marketData: text("market_data", { mode: 'json' }).$type<{
+    price: number;
+    volume: number;
+    rsi?: number;
+    macd?: number;
+    ema?: number;
+    indicators: Record<string, number>;
+  }>(),
+  pnl: decimal("pnl", { precision: 18, scale: 8 }),
+  result: text("result").notNull(), // 'success', 'failed', 'pending'
+  executionTime: integer("execution_time"), // milliseconds
+  timestamp: timestamp("timestamp").defaultNow().notNull(),
+});
+
+// Advanced Strategy Library for AI bot optimization
+export const strategyLibrary = pgTable("strategy_library", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  type: text("type").notNull(), // 'technical', 'ml', 'hybrid'
+  description: text("description").notNull(),
+  parameters: text("parameters", { mode: 'json' }).$type<Record<string, any>>(),
+  winRate: decimal("win_rate", { precision: 5, scale: 2 }),
+  avgPnl: decimal("avg_pnl", { precision: 18, scale: 8 }),
+  riskScore: decimal("risk_score", { precision: 3, scale: 2 }), // 0-10 scale
+  backtestResults: text("backtest_results", { mode: 'json' }).$type<{
+    totalTrades: number;
+    winningTrades: number;
+    totalReturn: number;
+    maxDrawdown: number;
+  }>(),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Bot Performance Analytics for continuous optimization
+export const botPerformanceAnalytics = pgTable("bot_performance_analytics", {
+  id: serial("id").primaryKey(),
+  botId: integer("bot_id").notNull().references(() => tradingBots.id),
+  userId: integer("user_id").notNull().references(() => users.id),
+  date: timestamp("date").defaultNow().notNull(),
+  totalTrades: integer("total_trades").default(0),
+  successfulTrades: integer("successful_trades").default(0),
+  totalPnl: decimal("total_pnl", { precision: 18, scale: 8 }).default("0"),
+  winRate: decimal("win_rate", { precision: 5, scale: 2 }),
+  avgTradeTime: decimal("avg_trade_time", { precision: 10, scale: 2 }), // seconds
+  riskAdjustedReturn: decimal("risk_adjusted_return", { precision: 5, scale: 4 }),
+  sharpeRatio: decimal("sharpe_ratio", { precision: 5, scale: 4 }),
+  currentStrategy: text("current_strategy"),
+  adaptationCount: integer("adaptation_count").default(0), // how many times strategy adapted
+});
+
+// Insert schemas for new tables
+export const insertAiBotLogSchema = createInsertSchema(aiBotLogs).omit({
+  id: true,
+  timestamp: true,
+});
+
+export const insertStrategyLibrarySchema = createInsertSchema(strategyLibrary).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertBotPerformanceAnalyticsSchema = createInsertSchema(botPerformanceAnalytics).omit({
+  id: true,
+  date: true,
+});
+
+// New types
+export type AiBotLog = typeof aiBotLogs.$inferSelect;
+export type InsertAiBotLog = z.infer<typeof insertAiBotLogSchema>;
+
+export type StrategyLibrary = typeof strategyLibrary.$inferSelect;
+export type InsertStrategyLibrary = z.infer<typeof insertStrategyLibrarySchema>;
+
+export type BotPerformanceAnalytics = typeof botPerformanceAnalytics.$inferSelect;
+export type InsertBotPerformanceAnalytics = z.infer<typeof insertBotPerformanceAnalyticsSchema>;

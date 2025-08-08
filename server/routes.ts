@@ -12,6 +12,7 @@ import { emailService } from "./email-service";
 import { aiTradingService } from "./ai-trading-service";
 import downloadRoutes from "./download-routes";
 import downloadPageRoutes from "./download-page";
+import botManagementRoutes from "./bot-management-routes";
 import express from "express";
 import path from "path";
 import { loginSchema, registerSchema, serverRegisterSchema, insertTradingBotSchema, insertApiKeySchema, forgotPasswordSchema, resetPasswordSchema } from "@shared/schema";
@@ -171,6 +172,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Download routes for source code packages
   app.use('/api', downloadRoutes);
   app.use('/', downloadPageRoutes);
+  
+  // Advanced AI Bot Management routes
+  app.use('/api', botManagementRoutes);
   
   // Serve static files from root directory for downloads
   app.use('/files', express.static(process.cwd(), {
