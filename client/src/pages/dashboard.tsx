@@ -446,7 +446,7 @@ export default function Dashboard() {
             {/* Contact Information */}
             <div className="mt-6 text-center">
               <p className="text-gray-400 text-sm">
-                Contact: enquiries.thronixpro@gmail.com
+                Contact: support@thronixpro.co.uk
               </p>
             </div>
           </TabsContent>
