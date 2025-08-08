@@ -324,7 +324,7 @@ npm run build
 ### Getting Help
 - **Documentation**: Review all `.md` files in repository
 - **Issues**: Check GitHub Issues for known problems
-- **Security**: Report security issues to legal@thronixpro.com
+- **Security**: Report security issues to support@thronixpro.co.uk
 
 ### Regular Maintenance
 - **Weekly**: Update dependencies and security patches
@@ -345,4 +345,4 @@ By copying and deploying this source code, you agree to:
 
 **Copy Instructions Version**: 1.0  
 **Last Updated**: August 2025  
-**Support Contact**: legal@thronixpro.com
+**Support Contact**: support@thronixpro.co.uk

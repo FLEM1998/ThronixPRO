@@ -75,7 +75,7 @@ export class EmailService {
 
     try {
       const { data, error } = await resend.emails.send({
-        from: 'no-reply@flem.ltd',
+        from: 'support@thronixpro.co.uk',
         to: [params.to],
         subject: params.subject,
         html: params.html,

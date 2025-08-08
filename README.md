@@ -222,7 +222,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 🆘 Support
 
-- 📧 Email: support@thronixpro.com
+- 📧 Email: support@thronixpro.co.uk
 - 📚 Documentation: [docs.thronixpro.com](https://docs.thronixpro.com)
 - 🐛 Issues: GitHub Issues
 - 💬 Community: Discord Server

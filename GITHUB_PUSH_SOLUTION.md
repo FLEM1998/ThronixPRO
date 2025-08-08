@@ -364,7 +364,7 @@ data/users.json
 
 ### Get Help
 - **GitHub Issues**: Report problems with the repository
-- **Email Support**: legal@thronixpro.com
+- **Email Support**: support@thronixpro.co.uk
 - **Community**: GitHub Discussions for community help
 
 ---

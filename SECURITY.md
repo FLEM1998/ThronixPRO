@@ -35,7 +35,7 @@ ThronixPRO takes security seriously as a platform handling real cryptocurrency f
 We appreciate security researchers who help keep ThronixPRO safe. If you discover a security vulnerability, please follow responsible disclosure:
 
 ### How to Report
-1. **Email**: Send details to security@thronixpro.com
+1. **Email**: Send details to support@thronixpro.co.uk
 2. **Include**: Detailed description, steps to reproduce, impact assessment
 3. **Encrypt**: Use our PGP key for sensitive information
 
@@ -135,7 +135,7 @@ We believe in recognizing security researchers who help improve our platform:
 
 ## 📞 Contact Information
 
-- **Security Team**: security@thronixpro.com
+- **Security Team**: support@thronixpro.co.uk
 - **PGP Key**: Available at keybase.io/thronixpro
 - **Security Page**: https://thronixpro.com/security
 - **Bug Bounty**: https://hackerone.com/thronixpro

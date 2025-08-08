@@ -131,7 +131,7 @@ As a cryptocurrency trading platform, additional compliance includes:
 ## Contact Information
 
 ### Copyright Inquiries
-**Email**: legal@thronixpro.com  
+**Email**: support@thronixpro.co.uk  
 **GitHub**: @FLEM1998  
 **Repository**: https://github.com/FLEM1998/ThronixPROapp  
 

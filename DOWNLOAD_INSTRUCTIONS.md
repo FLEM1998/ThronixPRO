@@ -195,7 +195,7 @@ For production deployment, see `DEPLOYMENT.md` for detailed instructions includi
 
 ### Support Channels
 - **GitHub Issues**: Bug reports and feature requests
-- **Email**: legal@thronixpro.com
+- **Email**: support@thronixpro.co.uk
 - **Repository**: https://github.com/FLEM1998/ThronixPROapp
 
 ## Legal Important Notice

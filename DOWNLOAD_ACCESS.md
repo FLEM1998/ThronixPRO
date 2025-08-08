@@ -229,7 +229,7 @@ copies or substantial portions of the Software.
 - **GitHub Issues**: Report bugs and request features
 - **Discussions**: Community discussions and help
 - **Wiki**: Additional documentation and tutorials
-- **Email Support**: legal@thronixpro.com
+- **Email Support**: support@thronixpro.co.uk
 
 ## Security Considerations
 
@@ -277,7 +277,7 @@ git clone --filter=blob:limit=10m https://github.com/FLEM1998/ThronixPROapp.git
 ## Alternative Access Methods
 
 ### If GitHub is Unavailable
-1. **Direct Contact**: Email legal@thronixpro.com for alternative access
+1. **Direct Contact**: Email support@thronixpro.co.uk for alternative access
 2. **Mirror Sites**: Check mirror repositories if available
 3. **Backup Archives**: Request backup archive if available
 
@@ -290,5 +290,5 @@ git clone --filter=blob:limit=10m https://github.com/FLEM1998/ThronixPROapp.git
 
 **Download Access Guide Version**: 1.0  
 **Last Updated**: August 2025  
-**Contact**: legal@thronixpro.com  
+**Contact**: support@thronixpro.co.uk  
 **Repository**: https://github.com/FLEM1998/ThronixPROapp
