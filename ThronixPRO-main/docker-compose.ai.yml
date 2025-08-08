@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  thronixpro-main:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - AI_SERVICE_URL=http://ai-service:5001
+    depends_on:
+      - ai-service
+
+  ai-service:
+    build: ./ai_service
+    ports:
+      - "5001:5001"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - SECRET_AUTH_TOKEN=${SECRET_AUTH_TOKEN}
+    volumes:
+      - ./ai_service:/app
