@@ -22,6 +22,12 @@ function RiskManagementPanel({ className = "" }: RiskManagementPanelProps) {
     refetchInterval: 5000, // Update every 5 seconds
   });
 
+  // Fetch risk metrics from server
+  const { data: riskMetricsData } = useQuery({
+    queryKey: ['/api/portfolio/risk'],
+    refetchInterval: 10000,
+  });
+
   // Calculate risk metrics from real data
   const totalBalance = parseFloat((portfolioSummary as any)?.totalBalance || '0');
   const dayPnl = parseFloat((portfolioSummary as any)?.dayPnl || '0');
@@ -43,6 +49,12 @@ function RiskManagementPanel({ className = "" }: RiskManagementPanelProps) {
     riskScore: riskScore,
     exposure: exposure
   };
+
+  // Override risk metrics with server-provided values when available
+  const serverMaxDrawdown = riskMetricsData?.maxDrawdown ?? riskMetrics.maxDrawdown;
+  const serverExposure = riskMetricsData?.exposure ?? riskMetrics.exposure;
+  const serverVaR = riskMetricsData?.valueAtRisk ?? 0;
+  const serverSharpe = riskMetricsData?.sharpeRatio ?? 0;
 
   const getRiskColor = (score: number) => {
     if (score <= 3) return 'text-green-400';
@@ -194,6 +206,31 @@ function RiskManagementPanel({ className = "" }: RiskManagementPanelProps) {
               <span className="text-gray-400">Max Concurrent Trades</span>
               <span className="text-white">10</span>
             </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Advanced Risk Metrics */}
+      <Card className="bg-gray-900 border-gray-700">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-white">Advanced Risk Metrics</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <div className="flex justify-between text-sm">
+            <span className="text-gray-400">Max Drawdown</span>
+            <span className="text-white">{serverMaxDrawdown.toFixed(2)}%</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-gray-400">Portfolio Exposure</span>
+            <span className="text-white">{serverExposure.toFixed(2)}%</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-gray-400">Value at Risk (VaR)</span>
+            <span className="text-white">${serverVaR.toFixed(2)}</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-gray-400">Sharpe Ratio</span>
+            <span className="text-white">{serverSharpe.toFixed(2)}</span>
           </div>
         </CardContent>
       </Card>

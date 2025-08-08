@@ -1,4 +1,6 @@
 import express, { type Request, Response, NextFunction } from "express";
+import * as Sentry from '@sentry/node';
+import { secretManager } from './secret-manager';
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import { registerRoutes } from "./routes";
@@ -104,6 +106,27 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // -----------------------------------------------------------------------
+  // Initialize Sentry for error monitoring.  Load the DSN via the secret
+  // manager if available; fall back to the SENTRY_DSN environment variable.
+  try {
+    const secretDsn = await secretManager.getSecret('SENTRY_DSN');
+    const sentryDsn = secretDsn || process.env.SENTRY_DSN;
+    if (sentryDsn) {
+      Sentry.init({
+        dsn: sentryDsn,
+        tracesSampleRate: 1.0,
+        environment: process.env.NODE_ENV,
+      });
+      // Attach request handler middleware as early as possible
+      app.use(Sentry.Handlers.requestHandler());
+      console.log('Sentry error monitoring initialized');
+    }
+  } catch (err) {
+    console.warn('Failed to initialize Sentry:', err);
+  }
+  // -----------------------------------------------------------------------
+
   // Initialize database before starting server
   console.log('Starting database initialization...');
   const dbInitialized = await initializeDatabase();
@@ -116,11 +139,21 @@ app.use((req, res, next) => {
 
   const server = await registerRoutes(app);
 
+  // If Sentry is enabled, attach the error handler after routes.  This
+  // middleware will capture exceptions and forward them to Sentry before
+  // passing them on.  Only register it when Sentry has been initialized.
+  if (Sentry.getCurrentHub().getClient()) {
+    app.use(Sentry.Handlers.errorHandler());
+  }
+
+  // Fallback error handler that formats errors as JSON.  Sentry's error
+  // handler will run before this if enabled.
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
-
+    // Respond with JSON error message
     res.status(status).json({ message });
+    // Re-throw the error to allow default Node handlers to log it
     throw err;
   });
 

@@ -22,8 +22,14 @@ import { IAPService } from "./iap-service";
 import { auditLog, readRecentLogs } from "./audit-logger";
 import { getSystemMetrics } from "./monitoring-service";
 
-const JWT_SECRET = process.env.JWT_SECRET || 'thronix_secret_key_2025';
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'thronix_encryption_key_32_chars!!';
+// Secrets are retrieved via the secret manager at runtime.  We default to
+// environment variables when running locally or if the secret manager
+// cannot resolve a secret.  See loadSecrets() in registerRoutes().
+import { secretManager } from './secret-manager';
+
+// Use mutable variables so they can be updated after secrets are loaded.
+let jwtSecret: string = process.env.JWT_SECRET || 'thronix_secret_key_2025';
+let encryptionKey: string = process.env.ENCRYPTION_KEY || 'thronix_encryption_key_32_chars!!';
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:5001';
 
 // Initialize IAP service
@@ -31,14 +37,16 @@ const iapService = new IAPService();
 
 // Utility functions
 const encryptData = (text: string): string => {
-  const cipher = crypto.createCipher('aes-256-cbc', ENCRYPTION_KEY);
+  // Use the mutable encryptionKey loaded from secrets or environment
+  const cipher = crypto.createCipher('aes-256-cbc', encryptionKey);
   let encrypted = cipher.update(text, 'utf8', 'hex');
   encrypted += cipher.final('hex');
   return encrypted;
 };
 
 const decryptData = (encryptedText: string): string => {
-  const decipher = crypto.createDecipher('aes-256-cbc', ENCRYPTION_KEY);
+  // Use the mutable encryptionKey loaded from secrets or environment
+  const decipher = crypto.createDecipher('aes-256-cbc', encryptionKey);
   let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
   decrypted += decipher.final('utf8');
   return decrypted;
@@ -59,7 +67,8 @@ const authenticate = async (req: any, res: any, next: any) => {
   }
   
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: number };
+    // Verify token using the loaded JWT secret
+    const decoded = jwt.verify(token, jwtSecret) as { userId: number };
     const user = await storage.getUser(decoded.userId);
     if (!user) {
       securityLogger.warn('Authentication failed: User not found', {
@@ -170,6 +179,25 @@ const requireEmailVerification = async (req: any, res: any, next: any) => {
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
+
+  // ---------------------------------------------------------------------------
+  // Load sensitive secrets from the secret manager before any routes use them.
+  // This will override jwtSecret and encryptionKey if values are found.  If the
+  // secret manager is not configured (for example during local development),
+  // the defaults set at the top of this file remain in effect.
+  try {
+    const loadedJwt = await secretManager.getSecret('JWT_SECRET');
+    if (loadedJwt) {
+      jwtSecret = loadedJwt;
+    }
+    const loadedEnc = await secretManager.getSecret('ENCRYPTION_KEY');
+    if (loadedEnc) {
+      encryptionKey = loadedEnc;
+    }
+  } catch (error) {
+    console.warn('Failed to load secrets from secret manager:', error);
+  }
+  // ---------------------------------------------------------------------------
   
   // Download routes for source code packages
   app.use('/api', downloadRoutes);
@@ -325,7 +353,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         if (data.type === 'auth' && data.token) {
           try {
-            const decoded = jwt.verify(data.token, JWT_SECRET) as { userId: number };
+            const decoded = jwt.verify(data.token, jwtSecret) as { userId: number };
             const user = await storage.getUser(decoded.userId);
             if (user) {
               connections.set(user.id, ws);
@@ -502,7 +530,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ error: 'Invalid credentials' });
       }
 
-      const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
+      // Sign the JWT using the loaded secret key
+      const token = jwt.sign({ userId: user.id }, jwtSecret, { expiresIn: '7d' });
       
       res.json({
         user: { 
@@ -2041,34 +2070,182 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Order alerts are now generated only from real trading activity
   // No demo data generation - live trading platform only
 
-  // Order Book Depth API
+  // Order Book Depth API - fetches live order book data using public ccxt endpoints
   app.get('/api/order-book', async (req, res) => {
     try {
-      const { symbol, exchange = 'kucoin' } = req.query;
-      
+      const symbol = req.query.symbol as string;
+      const exchangeName = (req.query.exchange as string) || 'kucoin';
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
+
       if (!symbol) {
         return res.status(400).json({ error: 'Symbol is required' });
       }
 
-      // Fetch live order book data from real exchange
       try {
-        // This would fetch real order book data from the exchange API
-        // For now, return error indicating live data connection required
-        return res.status(503).json({ 
-          error: 'LIVE_DATA_REQUIRED',
-          message: 'Order book data requires live exchange connection. Connect your exchange API keys.',
+        const { bids, asks } = await exchangeService.getOrderBookData(exchangeName, symbol, limit);
+        return res.json({
           symbol,
-          exchange
+          exchange: exchangeName,
+          bids,
+          asks,
+          timestamp: Date.now(),
         });
       } catch (exchangeError: any) {
+        console.error('Order book fetch error:', exchangeError);
         return res.status(503).json({ 
           error: 'EXCHANGE_CONNECTION_FAILED',
-          message: 'Unable to fetch live order book data from exchange'
+          message: exchangeError.message || 'Unable to fetch order book data from exchange'
         });
       }
     } catch (error: any) {
       console.error('Order book error:', error);
       res.status(500).json({ error: 'Failed to fetch order book' });
+    }
+  });
+
+  // Recent Trades API - returns latest trades for a symbol from a public exchange
+  app.get('/api/trades', async (req, res) => {
+    try {
+      const symbol = req.query.symbol as string;
+      const exchangeName = (req.query.exchange as string) || 'kucoin';
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 50;
+
+      if (!symbol) {
+        return res.status(400).json({ error: 'Symbol is required' });
+      }
+
+      try {
+        const trades = await exchangeService.getRecentTrades(exchangeName, symbol, limit);
+        // Map trades to a simplified structure
+        const mapped = trades.map(trade => ({
+          id: trade.id,
+          timestamp: trade.timestamp,
+          datetime: trade.datetime,
+          price: trade.price,
+          amount: trade.amount,
+          side: trade.side,
+          cost: trade.cost,
+        }));
+        return res.json({
+          symbol,
+          exchange: exchangeName,
+          trades: mapped,
+          timestamp: Date.now(),
+        });
+      } catch (error: any) {
+        console.error('Trade fetch error:', error);
+        return res.status(503).json({
+          error: 'EXCHANGE_CONNECTION_FAILED',
+          message: error.message || 'Unable to fetch recent trades from exchange'
+        });
+      }
+    } catch (error: any) {
+      console.error('Trades error:', error);
+      return res.status(500).json({ error: 'Failed to fetch trades' });
+    }
+  });
+
+  // Portfolio Risk Metrics API
+  // Computes basic risk metrics for a user's open positions.  This endpoint
+  // aggregates data from the positions table and live market prices to
+  // calculate exposure, maximum drawdown, value-at-risk and a simple Sharpe
+  // ratio.  The calculations are simplified and intended as guidance rather
+  // than precise financial advice.
+  app.get('/api/portfolio/risk', authenticate, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const positions = await storage.getOpenPositionsByUserId(userId);
+      if (!positions || positions.length === 0) {
+        return res.json({
+          positions: [],
+          exposure: 0,
+          maxDrawdown: 0,
+          valueAtRisk: 0,
+          sharpeRatio: 0,
+          totalPnl: 0,
+          totalExposure: 0,
+        });
+      }
+
+      // Determine unique symbols and a default exchange for fetching prices.
+      // Since positions do not store exchange names, we attempt to use the
+      // user's first active API key's exchange, falling back to KuCoin.
+      const apiKeys = await storage.getApiKeysByUserId(userId);
+      let defaultExchange: string | null = null;
+      for (const key of apiKeys) {
+        if (key.isActive) {
+          defaultExchange = key.exchange;
+          break;
+        }
+      }
+      if (!defaultExchange) {
+        defaultExchange = 'kucoin';
+      }
+
+      // Fetch current prices for each unique symbol
+      const symbols = Array.from(new Set(positions.map(p => p.symbol)));
+      const priceMap: Record<string, number> = {};
+      for (const symbol of symbols) {
+        try {
+          const ticker = await exchangeService.getTicker(userId, defaultExchange, symbol);
+          priceMap[symbol] = ticker.last;
+        } catch (error) {
+          // If fetching ticker fails, fallback to using entry price as current price
+          const sample = positions.find(p => p.symbol === symbol);
+          if (sample) {
+            priceMap[symbol] = parseFloat(sample.entryPrice as any) || 0;
+          }
+        }
+      }
+
+      let totalExposure = 0;
+      let totalPnl = 0;
+      let maxDrawdown = 0;
+      const positionRisks: any[] = [];
+      for (const pos of positions) {
+          const currentPrice = priceMap[pos.symbol] || parseFloat(pos.currentPrice as any) || parseFloat(pos.entryPrice as any);
+          const entry = parseFloat(pos.entryPrice as any);
+          const qty = parseFloat(pos.quantity as any);
+          const positionValue = currentPrice * qty;
+          const entryValue = entry * qty;
+          const pnl = (currentPrice - entry) * qty;
+          const pnlPercent = entryValue !== 0 ? ((currentPrice - entry) / entry) * 100 : 0;
+          totalExposure += positionValue;
+          totalPnl += pnl;
+          // Track maximum negative performance as drawdown
+          if (pnlPercent < maxDrawdown) {
+            maxDrawdown = pnlPercent;
+          }
+          positionRisks.push({
+            symbol: pos.symbol,
+            side: pos.side,
+            entryPrice: entry,
+            currentPrice: currentPrice,
+            quantity: qty,
+            pnl,
+            pnlPercent,
+          });
+      }
+
+      // Simplistic risk measures
+      const exposurePercent = totalExposure !== 0 ? (totalExposure / totalExposure) * 100 : 0;
+      const valueAtRisk = totalExposure * 0.02; // Assume 2% VaR for demonstration
+      const sharpeRatio = totalExposure !== 0 ? (totalPnl / totalExposure) * 10 : 0; // Simple Sharpe approximation
+      // Max drawdown should be reported as positive value
+      const maxDrawdownAbs = Math.abs(maxDrawdown);
+
+      return res.json({
+        positions: positionRisks,
+        exposure: exposurePercent,
+        maxDrawdown: maxDrawdownAbs,
+        valueAtRisk,
+        sharpeRatio,
+        totalPnl,
+        totalExposure,
+      });
+    } catch (error: any) {
+      console.error('Portfolio risk error:', error);
+      return res.status(500).json({ error: 'Failed to calculate risk metrics' });
     }
   });
 

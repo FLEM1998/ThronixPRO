@@ -14,7 +14,7 @@ interface OrderBookData {
   exchange: string;
   bids: OrderBookEntry[];
   asks: OrderBookEntry[];
-  timestamp: string;
+  timestamp: number;
 }
 
 interface OrderBookProps {
@@ -27,8 +27,16 @@ export default function OrderBook({ symbol, exchange = 'kucoin' }: OrderBookProp
 
   // Fetch real-time order book data
   const { data: orderBookData, isLoading } = useQuery<OrderBookData>({
-    queryKey: [`/api/order-book?symbol=${encodeURIComponent(symbol)}&exchange=${encodeURIComponent(exchange)}`],
-    refetchInterval: 1000, // Update every second for real-time data
+    queryKey: ['order-book', symbol, exchange],
+    queryFn: async () => {
+      const response = await fetch(`/api/order-book?symbol=${encodeURIComponent(symbol)}&exchange=${encodeURIComponent(exchange)}`);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch order book: ${response.statusText}`);
+      }
+      return response.json();
+    },
+    refetchInterval: 2000, // update every 2 seconds for near real-time
+    enabled: !!symbol,
   });
 
   // Calculate max total for visualization bars

@@ -309,6 +309,92 @@ export class ExchangeService {
     }
   }
 
+  /**
+   * Fetch the current order book for a symbol on a given exchange.  This method
+   * does not require the user to have API keys for the exchange; it uses
+   * ccxt’s public endpoints to retrieve the top levels of the order book.
+   *
+   * @param exchangeName The name of the exchange (e.g. 'binance', 'kucoin', 'bybit').
+   * @param symbol The trading pair (e.g. 'BTC/USDT').
+   * @param limit Optional number of levels per side to return. Defaults to 20.
+   * @returns An object with bids and asks arrays sorted by price.
+   */
+  public async getOrderBookData(exchangeName: string, symbol: string, limit: number = 20): Promise<{
+    bids: { price: number; quantity: number; total: number }[];
+    asks: { price: number; quantity: number; total: number }[];
+  }> {
+    // Build a public exchange instance.  We avoid reusing the authenticated
+    // instances here to ensure we can fetch order books without API keys.
+    let exchange: ccxt.Exchange;
+    switch (exchangeName.toLowerCase()) {
+      case 'binance':
+        exchange = new ccxt.binance({ enableRateLimit: true });
+        break;
+      case 'kucoin':
+        exchange = new ccxt.kucoin({ enableRateLimit: true });
+        break;
+      case 'bybit':
+        exchange = new ccxt.bybit({ enableRateLimit: true });
+        break;
+      default:
+        throw new Error(`Unsupported exchange: ${exchangeName}`);
+    }
+
+    try {
+      // Ensure markets are loaded before fetching order book
+      await exchange.loadMarkets();
+      const orderBook = await exchange.fetchOrderBook(symbol, limit);
+      // Map to a uniform structure
+      const bids = (orderBook.bids || []).slice(0, limit).map(([price, quantity]: [number, number]) => ({
+        price,
+        quantity,
+        total: price * quantity,
+      }));
+      const asks = (orderBook.asks || []).slice(0, limit).map(([price, quantity]: [number, number]) => ({
+        price,
+        quantity,
+        total: price * quantity,
+      }));
+      return { bids, asks };
+    } catch (error) {
+      console.error(`Error fetching order book for ${symbol} on ${exchangeName}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Fetch the most recent trades for a symbol on a given exchange.  Uses ccxt’s
+   * public trade endpoints and does not require authentication.
+   *
+   * @param exchangeName Exchange name (e.g. 'binance').
+   * @param symbol Trading pair (e.g. 'BTC/USDT').
+   * @param limit Optional number of trades to return. Defaults to 50.
+   */
+  public async getRecentTrades(exchangeName: string, symbol: string, limit: number = 50): Promise<ccxt.Trade[]> {
+    let exchange: ccxt.Exchange;
+    switch (exchangeName.toLowerCase()) {
+      case 'binance':
+        exchange = new ccxt.binance({ enableRateLimit: true });
+        break;
+      case 'kucoin':
+        exchange = new ccxt.kucoin({ enableRateLimit: true });
+        break;
+      case 'bybit':
+        exchange = new ccxt.bybit({ enableRateLimit: true });
+        break;
+      default:
+        throw new Error(`Unsupported exchange: ${exchangeName}`);
+    }
+    try {
+      await exchange.loadMarkets();
+      const trades = await exchange.fetchTrades(symbol, undefined, limit);
+      return trades;
+    } catch (error) {
+      console.error(`Error fetching trades for ${symbol} on ${exchangeName}:`, error);
+      throw error;
+    }
+  }
+
   public async getAllTradingPairs(exchangeName: string): Promise<string[]> {
     let exchange: ccxt.Exchange;
     

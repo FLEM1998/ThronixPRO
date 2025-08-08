@@ -44,6 +44,12 @@ export default function AdvancedTradingChart({ symbol, exchange = 'kucoin', clas
   const [timeframe, setTimeframe] = useState('1h');
   const [chartType, setChartType] = useState<'candlestick' | 'line'>('candlestick');
 
+  // Moving average toggle state
+  const [showSMA20, setShowSMA20] = useState(true);
+  const [showSMA50, setShowSMA50] = useState(false);
+  const sma20SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const sma50SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+
   // Fetch chart data for the selected symbol
   const { data: chartData, isLoading, error } = useQuery<ChartResponse>({
     queryKey: ['chart', symbol, timeframe, exchange],
@@ -115,6 +121,19 @@ export default function AdvancedTradingChart({ symbol, exchange = 'kucoin', clas
       },
     });
 
+    // Add moving average line series
+    const sma20Series = chart.addLineSeries({
+      color: '#fbbf24', // amber for SMA20
+      lineWidth: 2,
+    });
+    const sma50Series = chart.addLineSeries({
+      color: '#6366f1', // indigo for SMA50
+      lineWidth: 2,
+    });
+
+    sma20SeriesRef.current = sma20Series;
+    sma50SeriesRef.current = sma50Series;
+
     // Set up price scale for volume
     chart.priceScale('volume').applyOptions({
       scaleMargins: {
@@ -177,6 +196,37 @@ export default function AdvancedTradingChart({ symbol, exchange = 'kucoin', clas
     console.log('Setting chart data:', { candlestickData: candlestickData.length, volumeData: volumeData.length });
     candlestickSeriesRef.current.setData(candlestickData);
     volumeSeriesRef.current.setData(volumeData);
+
+    // Calculate moving averages
+    const calculateSMA = (data: CandlestickData[], period: number): LineData[] => {
+      const smaData: LineData[] = [];
+      const prices: number[] = [];
+      for (let i = 0; i < data.length; i++) {
+        prices.push(data[i].close);
+        if (i >= period - 1) {
+          const slice = prices.slice(i - period + 1, i + 1);
+          const sum = slice.reduce((acc, val) => acc + val, 0);
+          const avg = sum / period;
+          smaData.push({ time: data[i].time, value: avg });
+        } else {
+          // For initial periods, just repeat the close price
+          smaData.push({ time: data[i].time, value: data[i].close });
+        }
+      }
+      return smaData;
+    };
+    if (sma20SeriesRef.current && showSMA20) {
+      const sma20 = calculateSMA(candlestickData, 20);
+      sma20SeriesRef.current.setData(sma20);
+    } else if (sma20SeriesRef.current) {
+      sma20SeriesRef.current.setData([]);
+    }
+    if (sma50SeriesRef.current && showSMA50) {
+      const sma50 = calculateSMA(candlestickData, 50);
+      sma50SeriesRef.current.setData(sma50);
+    } else if (sma50SeriesRef.current) {
+      sma50SeriesRef.current.setData([]);
+    }
 
     // Fit content
     if (chartRef.current) {
@@ -306,7 +356,7 @@ export default function AdvancedTradingChart({ symbol, exchange = 'kucoin', clas
             </div>
           </div>
           
-          {/* Timeframe Selector */}
+          {/* Timeframe & Indicator Selector */}
           <div className="flex items-center space-x-1">
             {timeframes.map((tf) => (
               <Button
@@ -319,6 +369,23 @@ export default function AdvancedTradingChart({ symbol, exchange = 'kucoin', clas
                 {tf.label}
               </Button>
             ))}
+            {/* Moving Average Toggles */}
+            <Button
+              variant={showSMA20 ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setShowSMA20((prev) => !prev)}
+              className="px-3 py-1 text-xs"
+            >
+              SMA20
+            </Button>
+            <Button
+              variant={showSMA50 ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setShowSMA50((prev) => !prev)}
+              className="px-3 py-1 text-xs"
+            >
+              SMA50
+            </Button>
           </div>
         </div>
       </CardHeader>
