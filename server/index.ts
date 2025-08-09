@@ -98,6 +98,7 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Initialize database
   console.log("Starting database initialization...");
   const dbInitialized = await initializeDatabase();
   console.log(
@@ -106,8 +107,10 @@ app.use((req, res, next) => {
       : "Database initialization failed - retrying during runtime operations"
   );
 
+  // Register routes (returns underlying http.Server)
   const server = await registerRoutes(app);
 
+  // Global error handler
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
@@ -115,13 +118,17 @@ app.use((req, res, next) => {
     throw err;
   });
 
+  // Dev vs Prod serving — keep ONE call per branch
   if (process.env.NODE_ENV !== "production") {
-    await setupVite(app, server);
+    await setupVite(app, server); // DEV (Vite middleware)
   } else {
-    serveStatic(app);
+    serveStatic(app); // PROD (serve dist/public)
   }
 
+  // Bind to injected port or default 5000
   const port = Number(process.env.PORT || 5000);
+
+  // Windows-safe reusePort handling
   const listenOpts: any = { port, host: "0.0.0.0" };
   if (process.platform !== "win32") listenOpts.reusePort = true;
 
@@ -129,3 +136,4 @@ app.use((req, res, next) => {
     log(`serving on port ${port}`);
   });
 })();
+
