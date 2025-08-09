@@ -1,5 +1,6 @@
+// server/index.ts
 import dotenv from "dotenv";
-dotenv.config(); // load .env in ALL environments
+dotenv.config(); // load .env early in ALL environments
 
 import express, { type Request, Response, NextFunction } from "express";
 import rateLimit from "express-rate-limit";
@@ -22,7 +23,7 @@ process.on("uncaughtException", (error) => {
 
 const app = express();
 
-// Trust proxy for proper client IP detection (Render/NGINX/etc.)
+// Trust proxy (Render/NGINX/etc.)
 app.set("trust proxy", 1);
 
 // Security middleware
@@ -126,14 +127,12 @@ app.use((req, res, next) => {
 
   // Bind to injected port or default 5000
   const port = Number(process.env.PORT || 5000);
-  server.listen(
-    {
-      port,
-      host: "0.0.0.0",
-      reusePort: true,
-    },
-    () => {
-      log(`serving on port ${port}`);
-    }
-  );
+
+  // Windows-safe reusePort handling
+  const listenOpts: any = { port, host: "0.0.0.0" };
+  if (process.platform !== "win32") listenOpts.reusePort = true;
+
+  server.listen(listenOpts, () => {
+    log(`serving on port ${port}`);
+  });
 })();
