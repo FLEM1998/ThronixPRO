@@ -1,115 +1,102 @@
-import { Pool, neonConfig } from '@neondatabase/serverless';
-import { drizzle } from 'drizzle-orm/neon-serverless';
-import ws from "ws";
-import * as schema from "@shared/schema";
-import { fallbackDb, testFallbackConnection } from './fallback-db';
+// server/db.ts — Render Postgres (pg) + Drizzle
 
-// Configure WebSocket for Neon with enhanced settings
-neonConfig.webSocketConstructor = ws;
-neonConfig.pipelineConnect = false;
-neonConfig.useSecureWebSocket = true;
-neonConfig.pipelineTLS = false;
+import dotenv from "dotenv";
+dotenv.config(); // ensure .env is loaded before checks
+
+import { Pool } from "pg";
+import { drizzle } from "drizzle-orm/node-postgres";
+import * as schema from "@shared/schema";
+import { fallbackDb, testFallbackConnection } from "./fallback-db";
 
 if (!process.env.DATABASE_URL) {
-  throw new Error(
-    "DATABASE_URL must be set. Did you forget to provision a database?",
-  );
+  throw new Error("DATABASE_URL must be set. Did you forget to provision a database?");
 }
 
-console.log('Initializing database connection...');
+console.log("Initializing database connection...");
 
-export const pool = new Pool({ 
+// Render external Postgres needs SSL. `sslmode=require` is in the URL,
+// but pg also needs ssl config in some environments.
+export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  max: 1, // Reduced for better control
-  idleTimeoutMillis: 0, // Never timeout
-  connectionTimeoutMillis: 60000, // 60 second timeout
+  // Use SSL in production; allow self-signed certs on hosted providers
+  ssl: process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false,
+  // Optional tuning (safe defaults)
+  max: 5,
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 30_000,
 });
 
-const neonDb = drizzle({ client: pool, schema });
+const pgDb = drizzle(pool, { schema });
 
 // Database selection logic with fallback
 let usingFallback = false;
 
 async function selectWorkingDatabase() {
   try {
-    // Test Neon connection
-    await pool.query('SELECT 1');
-    console.log('Neon database connection successful');
-    return neonDb;
+    await pool.query("SELECT 1");
+    console.log("Primary Postgres connection successful");
+    return pgDb;
   } catch (error) {
-    console.log('Neon connection failed, testing fallback...');
-    
+    console.log("Primary Postgres connection failed, testing fallback…", (error as Error).message);
+
     const fallbackWorks = await testFallbackConnection();
     if (fallbackWorks) {
-      console.log('Using fallback database connection');
+      console.log("Using fallback database connection");
       usingFallback = true;
       return fallbackDb;
     } else {
-      console.error('Both Neon and fallback connections failed');
-      throw new Error('No working database connection available');
+      console.error("Both primary and fallback connections failed");
+      throw new Error("No working database connection available");
     }
   }
 }
 
 // Initialize working database
-let workingDb: any;
-selectWorkingDatabase().then(db => {
-  workingDb = db;
-  console.log(`Database initialized: ${usingFallback ? 'Fallback PostgreSQL' : 'Neon'}`);
-}).catch(error => {
-  console.error('Database initialization failed:', error);
-  // Use fallback as last resort
-  workingDb = fallbackDb;
-  usingFallback = true;
-});
+let workingDb: typeof pgDb | typeof fallbackDb | undefined;
 
-export const db = new Proxy({}, {
-  get(target, prop) {
+selectWorkingDatabase()
+  .then((db) => {
+    workingDb = db;
+    console.log(`Database initialized: ${usingFallback ? "Fallback" : "Primary Postgres"}`);
+  })
+  .catch((err) => {
+    console.error("Database initialization failed:", err);
+    // last resort: keep app running with fallback in memory
+    workingDb = fallbackDb;
+    usingFallback = true;
+  });
+
+// Export a proxy so imports can use `db` immediately
+export const db = new Proxy({} as typeof pgDb & typeof fallbackDb, {
+  get(_target, prop: keyof (typeof pgDb & typeof fallbackDb)) {
     if (!workingDb) {
-      // Return fallback during initialization
-      return fallbackDb[prop as keyof typeof fallbackDb];
+      // during startup, provide fallback to avoid crashes
+      return (fallbackDb as any)[prop];
     }
-    return workingDb[prop as keyof typeof workingDb];
-  }
+    return (workingDb as any)[prop];
+  },
 });
 
 export { usingFallback };
 
-// Database activation function with retry logic
+// Optional: wake the DB (useful on cold starts)
 export async function activateDatabase(): Promise<boolean> {
   const maxRetries = 5;
-  const retryDelay = 2000; // 2 seconds
-  
+  const delayMs = 1500;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      console.log(`Database activation attempt ${attempt}/${maxRetries}...`);
-      
-      // Simple query to wake up the database
-      const result = await pool.query('SELECT 1 as test');
-      
-      if (result.rows && result.rows.length > 0) {
-        console.log('Database activated successfully');
-        return true;
-      }
-    } catch (error: any) {
-      console.log(`Activation attempt ${attempt} failed:`, error.message);
-      
-      if (attempt < maxRetries) {
-        console.log(`Waiting ${retryDelay}ms before retry...`);
-        await new Promise(resolve => setTimeout(resolve, retryDelay));
-      }
+      await pool.query("SELECT 1");
+      console.log("Database activated successfully");
+      return true;
+    } catch (e: any) {
+      console.log(`Activation attempt ${attempt} failed: ${e.message}`);
+      if (attempt < maxRetries) await new Promise((r) => setTimeout(r, delayMs));
     }
   }
-  
-  console.error('Database activation failed after all attempts');
+  console.error("Database activation failed after all attempts");
   return false;
 }
 
-// Test database connection
-pool.on('connect', () => {
-  console.log('Database connected successfully');
-});
-
-pool.on('error', (err) => {
-  console.error('Database connection error:', err);
-});
+// Helpful connection logs
+pool.on("connect", () => console.log("DB pool: connected"));
+pool.on("error", (err) => console.error("DB pool error:", err));
