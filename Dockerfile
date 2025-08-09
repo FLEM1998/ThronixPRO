@@ -1,41 +1,31 @@
-# ---------- Base build stage ----------
+# ---------- Build stage ----------
 FROM node:20-alpine AS builder
-
-# Install build tools
-RUN apk add --no-cache python3 make g++
-
-# Set working directory
 WORKDIR /app
-
-# Copy dependency manifests
+# build tools only for build stage
+RUN apk add --no-cache python3 make g++
 COPY package*.json ./
 COPY tsconfig.json ./
-
-# Install ALL dependencies (including devDependencies)
 RUN npm ci --silent
-
-# Copy full project into container
 COPY . .
-
-# Build the app (includes vite + esbuild)
+# Build client to dist/public and server to dist/
 RUN npm run build
 
-# ---------- Production image ----------
+# ---------- Production stage ----------
 FROM node:20-alpine AS production
-
-# Create app user
-RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
-
-# Set working directory
 WORKDIR /app
 
-# Copy only built output and dependencies
-COPY --from=builder /app/node_modules ./node_modules
+# Ensure prod mode at runtime
+ENV NODE_ENV=production
+
+# Copy only what we need
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package*.json ./
 
-# Expose port
-EXPOSE 3000
+# Install production deps only
+RUN npm ci --omit=dev --silent
 
-# Start the app
+# Render/most hosts inject PORT; EXPOSE is informational
+EXPOSE 5000
+
+# Start server (must read process.env.PORT in your code)
 CMD ["node", "dist/index.js"]
