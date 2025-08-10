@@ -1,3 +1,4 @@
+:2647
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
@@ -2644,83 +2645,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post('/api/subscription/verify', authenticate, async (req: any, res) => {
-    try {
-      const userId = req.user.id;
-      const { provider, purchaseToken, purchaseId, productId } = req.body;
-      
-      if (!provider || !productId) {
-        return res.status(400).json({ error: 'Provider and product ID are required' });
-      }
+    // Subscription verification endpoint - verify purchase with IAP services
+    app.post('/api/subscription/verify', authenticate, async (req: any, res) => {
+        const userId = req.user?.id;
+        const { provider, productId, purchaseToken, purchaseId } = req.body;
 
-      let verificationResult = false;
-      
-      try {
-        if (provider === 'huawei' && purchaseToken) {
-          const result = await iapService.verifyHuaweiSubscription(userId.toString(), purchaseToken, productId);
-          verificationResult = result.status === 'active';
-        } else if (provider === 'samsung' && purchaseId) {
-          const result = await iapService.verifySamsungSubscription(userId.toString(), purchaseId, productId);
-          verificationResult = result.status === 'active';
+        if (!provider || !productId) {
+            return res.status(400).json({ error: 'Provider and productId are required' });
         }
-      } catch (iapError) {
-        console.warn('IAP service unavailable, allowing manual verification for development');
-        verificationResult = productId === 'thronixpro_premium';
-      }
 
-      if (verificationResult) {
-        // Update or create subscription record
-        const existingSubscription = await storage.getUserSubscriptionStatus(userId);
-        
-        if (existingSubscription) {
-          await storage.updateSubscription(userId, {
-            isActive: true,
-            lastVerified: new Date(),
-            expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days from now
-          });
-        } else {
-          await storage.createSubscription({
-            userId,
-            provider,
-            productId,
-            purchaseToken,
-            purchaseId,
-            isActive: true,
-            expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-          });
+        try {
+            let result;
+            if (provider === 'huawei' && purchaseToken) {
+                result = await iapService.verifyHuaweiSubscription(userId, purchaseToken, productId);
+            } else if (provider === 'samsung' && purchaseId) {
+                result = await iapService.verifySamsungSubscription(userId, purchaseId, productId);
+            } else {
+                return res.status(400).json({ error: 'Invalid provider or missing purchase token/id' });
+            }
+
+            const isActive = result.status === 'active';
+            const expiryDate = result.expiryTime ? new Date(result.expiryTime) : new Date();
+
+            // Upsert subscription record
+            const existingSubscription = await storage.getSubscriptionByUserId(userId);
+            if (existingSubscription) {
+                await storage.updateSubscription(userId, {
+                    isActive,
+                    productId,
+                    provider,
+                    expiryDate,
+                    lastVerified: new Date(),
+                    purchaseToken: purchaseToken || null,
+                    purchaseId: purchaseId || null
+                });
+            } else {
+                await storage.createSubscription({
+                    userId,
+                    productId,
+                    provider,
+                    isActive,
+                    expiryDate,
+                    purchaseToken: purchaseToken || null,
+                    purchaseId: purchaseId || null,
+                    lastVerified: new Date()
+                });
+            }
+
+            return res.status(isActive ? 201 : 200).json({ active: isActive, expiryDate });
+        } catch (iapError) {
+            console.error('IAP verification error:', iapError);
+            return res.status(502).json({ error: 'IAP verification unavailable' });
         }
-        
-        securityLogger.info('Subscription verified successfully', {
-          userId,
-          provider,
-          productId
-        });
-        
-        res.json({ 
-          success: true, 
-          message: 'Subscription verified successfully',
-          isActive: true
-        });
-      } else {
-        securityLogger.warn('Subscription verification failed', {
-          userId,
-          provider,
-          productId
-        });
-        
-        res.status(402).json({ 
-          error: 'SUBSCRIPTION_VERIFICATION_FAILED',
-          message: 'Unable to verify subscription payment'
-        });
-      }
-    } catch (error: any) {
-      securityLogger.error('Subscription verification error', {
-        userId: req.user.id,
-        error: error.message
-      });
-      res.status(500).json({ error: 'Subscription verification failed' });
-    }
-  });
+    });
+
+createSubscription
+
+ai_service/app.py
 
   /**
    * Support ticket endpoint
