@@ -28,7 +28,7 @@ process.on("uncaughtException", (error) => {
 });
 
 const app = express();
-
+// Trust proxy (Render/NGINX/etc.)
   contentSecurityPolicy: false, // allow inline in dev
 app.set("trust proxy", 1);
 
@@ -56,7 +56,18 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+app.use("/api/", apiLimiter);
+app.use("/api/auth/", authLimiter);
+app.use("/api/login", authLimiter);
+app.use("/api/register", authLimiter);
 
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: false, limit: "10mb" }));
+
+// Simple API request logger
+app.use((req, res, next) => {
+  const start = Date.now();
+  const path = req.path;
   let capturedJsonResponse: Record<string, any> | undefined;
 
   const originalResJson = res.json.bind(res);
