@@ -1,7 +1,7 @@
 // server/index.ts
-// Load .env early in development only
+// Load .env early in development only (no top-level await)
+import dotenv from "dotenv";
 if (process.env.NODE_ENV !== "production") {
-  const dotenv = await import("dotenv");
   dotenv.config({ path: ".env" });
 }
 
@@ -9,7 +9,6 @@ import express, { type Request, type Response, type NextFunction } from "express
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import compression from "compression";
-import cors from "cors";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { initializeDatabase } from "./init-database";
@@ -29,7 +28,7 @@ const app = express();
 // Trust proxy (Render/NGINX/etc.)
 app.set("trust proxy", 1);
 
-// Security middleware (CSP relaxed only in dev)
+// Security middleware (CSP relaxed in dev, enabled in prod)
 app.use(
   helmet({
     contentSecurityPolicy: process.env.NODE_ENV === "production",
@@ -39,16 +38,6 @@ app.use(
 
 // Compression
 app.use(compression());
-
-// CORS (optional; set CORS_ORIGIN or leave unset to disable)
-if (process.env.CORS_ORIGIN) {
-  app.use(
-    cors({
-      origin: process.env.CORS_ORIGIN.split(",").map(s => s.trim()),
-      credentials: true,
-    })
-  );
-}
 
 // Rate limiting
 const apiLimiter = rateLimit({
