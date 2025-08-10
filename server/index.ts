@@ -29,7 +29,7 @@ app.set("trust proxy", 1);
 // Security middleware
 app.use(
   helmet({
-    contentSecurityPolicy: false, // allow inline in dev
+    contentSecurityPolicy: false,
     crossOriginEmbedderPolicy: false,
   })
 );
@@ -118,7 +118,7 @@ app.use((req, res, next) => {
     throw err;
   });
 
-  // Dev vs Prod serving — keep ONE call per branch
+  // Dev vs Prod serving — ONE call per branch
   if (process.env.NODE_ENV !== "production") {
     await setupVite(app, server); // DEV (Vite middleware)
   } else {
@@ -136,4 +136,3 @@ app.use((req, res, next) => {
     log(`serving on port ${port}`);
   });
 })();
-
