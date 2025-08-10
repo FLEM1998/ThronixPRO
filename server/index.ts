@@ -4,6 +4,9 @@ if (process.env.NODE_ENV !== "production") {
   const dotenv = await import("dotenv");
   dotenv.config({ path: ".env" });
 }
+  const dotenv = await import("dotenv");
+  dotenv.config({ path: ".env" });
+}
 
 import express, { type Request, Response, NextFunction } from "express";
 import rateLimit from "express-rate-limit";
@@ -26,7 +29,7 @@ process.on("uncaughtException", (error) => {
 
 const app = express();
 
-// Trust proxy (Render/NGINX/etc.)
+  contentSecurityPolicy: false, // allow inline in dev
 app.set("trust proxy", 1);
 
 // Security middleware
@@ -54,18 +57,6 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-app.use("/api/", apiLimiter);
-app.use("/api/auth/", authLimiter);
-app.use("/api/login", authLimiter);
-app.use("/api/register", authLimiter);
-
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: false, limit: "10mb" }));
-
-// Simple API request logger
-app.use((req, res, next) => {
-  const start = Date.now();
-  const path = req.path;
   let capturedJsonResponse: Record<string, any> | undefined;
 
   const originalResJson = res.json.bind(res);
