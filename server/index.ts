@@ -4,9 +4,6 @@ if (process.env.NODE_ENV !== "production") {
   const dotenv = await import("dotenv");
   dotenv.config({ path: ".env" });
 }
-  const dotenv = await import("dotenv");
-  dotenv.config({ path: ".env" });
-}
 
 import express, { type Request, Response, NextFunction } from "express";
 import rateLimit from "express-rate-limit";
@@ -28,9 +25,8 @@ process.on("uncaughtException", (error) => {
 });
 
 const app = express();
--
+
 // Trust proxy (Render/NGINX/etc.)
-  contentSecurityPolicy: false, // allow inline in dev
 app.set("trust proxy", 1);
 
 // Security middleware
@@ -57,7 +53,7 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
--
+
 app.use("/api/", apiLimiter);
 app.use("/api/auth/", authLimiter);
 app.use("/api/login", authLimiter);
@@ -112,11 +108,11 @@ app.use((req, res, next) => {
     throw err;
   });
 
-  // Dev vs Prod serving — ONE call per branch
+  // Dev vs Prod serving
   if (process.env.NODE_ENV !== "production") {
-    await setupVite(app, server); // DEV (Vite middleware)
+    await setupVite(app, server); // DEV
   } else {
-    serveStatic(app); // PROD (serve dist/public)
+    serveStatic(app); // PROD
   }
 
   // Bind to injected port or default 5000
@@ -127,6 +123,6 @@ app.use((req, res, next) => {
   if (process.platform !== "win32") listenOpts.reusePort = true;
 
   server.listen(listenOpts, () => {
-    log(`serving on port ${port}`);
+    log(`Serving on port ${port}`);
   });
 })();
