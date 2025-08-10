@@ -28,6 +28,7 @@ process.on("uncaughtException", (error) => {
 });
 
 const app = express();
+-
 // Trust proxy (Render/NGINX/etc.)
   contentSecurityPolicy: false, // allow inline in dev
 app.set("trust proxy", 1);
@@ -56,6 +57,7 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+-
 app.use("/api/", apiLimiter);
 app.use("/api/auth/", authLimiter);
 app.use("/api/login", authLimiter);
