@@ -1,6 +1,9 @@
 // server/index.ts
-import dotenv from "dotenv";
-dotenv.config(); // load .env early in ALL environments
+// Load .env early in development only
+if (process.env.NODE_ENV !== "production") {
+  const dotenv = await import("dotenv");
+  dotenv.config({ path: ".env" });
+}
 
 import express, { type Request, Response, NextFunction } from "express";
 import rateLimit from "express-rate-limit";
@@ -29,7 +32,7 @@ app.set("trust proxy", 1);
 // Security middleware
 app.use(
   helmet({
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: false, // allow inline in dev
     crossOriginEmbedderPolicy: false,
   })
 );
@@ -55,19 +58,6 @@ app.use("/api/", apiLimiter);
 app.use("/api/auth/", authLimiter);
 app.use("/api/login", authLimiter);
 app.use("/api/register", authLimiter);
-
-// Extra security headers in production
-if (process.env.NODE_ENV === "production") {
-  app.use((_req, res, next) => {
-    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
-    res.setHeader("X-Content-Type-Options", "nosniff");
-    res.setHeader("X-Frame-Options", "DENY");
-    res.setHeader("X-XSS-Protection", "1; mode=block");
-    res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-    res.setHeader("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
-    next();
-  });
-}
 
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: false, limit: "10mb" }));
