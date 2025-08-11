@@ -1,4 +1,3 @@
-:2647
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
@@ -22,28 +21,23 @@ import { logger, securityLogger, tradingLogger } from "./logger";
 import { IAPService } from "./iap-service";
 import { auditLog, readRecentLogs } from "./audit-logger";
 import { getSystemMetrics } from "./monitoring-service";
+import { encrypt as encryptSecure, decrypt as decryptSecure } from "./crypto";
 
-const JWT_SECRET = process.env.JWT_SECRET || 'thronix_secret_key_2025';
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'thronix_encryption_key_32_chars!!';
+const JWT_SECRET = process.env.JWT_SECRET;
+// For AI microservice calls; defaults to localhost if not provided
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:5001';
+
+if (!JWT_SECRET) {
+  throw new Error('JWT_SECRET must be set via environment variables');
+}
 
 // Initialize IAP service
 const iapService = new IAPService();
 
 // Utility functions
-const encryptData = (text: string): string => {
-  const cipher = crypto.createCipher('aes-256-cbc', ENCRYPTION_KEY);
-  let encrypted = cipher.update(text, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  return encrypted;
-};
-
-const decryptData = (encryptedText: string): string => {
-  const decipher = crypto.createDecipher('aes-256-cbc', ENCRYPTION_KEY);
-  let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
-  return decrypted;
-};
+// Encryption helpers now delegate to the strong AES‑256‑GCM implementation in crypto.ts.
+const encryptData = (text: string): string => encryptSecure(text);
+const decryptData = (encryptedText: string): string => decryptSecure(encryptedText);
 
 // Enhanced authentication middleware with security logging
 const authenticate = async (req: any, res: any, next: any) => {
