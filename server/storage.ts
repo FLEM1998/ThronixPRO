@@ -73,6 +73,14 @@ export interface IStorage {
   createSubscription(subscription: InsertSubscription): Promise<Subscription>;
   updateSubscription(userId: number, updates: Partial<Subscription>): Promise<Subscription | undefined>;
   verifySubscription(userId: number, provider: string, purchaseToken?: string, purchaseId?: string): Promise<boolean>;
+
+  /**
+   * Fetch the most recently verified subscription record for a user. Returns
+   * undefined if no subscription exists. This is used internally by the
+   * subscription verification endpoint to determine whether to update an
+   * existing record or create a new one.
+   */
+  getSubscriptionByUserId(userId: number): Promise<Subscription | undefined>;
 }
 
 export class WorkingStorage implements IStorage {
@@ -490,6 +498,27 @@ export class WorkingStorage implements IStorage {
     } catch (error) {
       console.error('Error verifying subscription:', error);
       return false;
+    }
+  }
+
+  /**
+   * Retrieve the most recent subscription record for a given user. This helper
+   * is used by the subscription verification logic to decide whether to
+   * update an existing subscription or insert a new one. If the database
+   * query fails, undefined is returned so the caller can handle creation.
+   */
+  async getSubscriptionByUserId(userId: number): Promise<Subscription | undefined> {
+    try {
+      const [subscription] = await db
+        .select()
+        .from(subscriptions)
+        .where(eq(subscriptions.userId, userId))
+        .orderBy(desc(subscriptions.lastVerified))
+        .limit(1);
+      return subscription || undefined;
+    } catch (error) {
+      console.error('Error fetching subscription by user id:', error);
+      return undefined;
     }
   }
 }
