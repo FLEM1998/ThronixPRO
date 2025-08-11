@@ -1,5 +1,10 @@
 import ccxt from 'ccxt';
 import crypto from 'crypto';
+// Import strong encryption helpers. These functions implement AES‑256‑GCM
+// encryption with per‑message IVs and authentication tags. They are used
+// for storing and retrieving API credentials securely. See crypto.ts for
+// details.
+import { encrypt as encryptSecure, decrypt as decryptSecure } from './crypto';
 import { ApiKey } from '@shared/schema';
 
 export interface ExchangeBalance {
@@ -44,41 +49,66 @@ export interface ExchangeOrder {
 
 export class ExchangeService {
   private exchanges: Map<string, ccxt.Exchange> = new Map();
+  /**
+   * Legacy encryption key used only for decrypting API credentials stored
+   * using the previous AES‑CBC implementation. New credentials are
+   * encrypted using the secure helpers imported from crypto.ts and no
+   * longer rely on this property.
+   */
   private encryptionKey = process.env.ENCRYPTION_KEY || 'default-key-change-in-production';
 
+  /**
+   * Encrypt plain text using the strong AES‑256‑GCM helper. The returned
+   * string includes the IV and authentication tag, separated by colons.
+   */
   private encrypt(text: string): string {
     try {
-      // Use simple base64 encoding for now to avoid encryption issues
-      // In production, this should use proper AES encryption
-      return Buffer.from(text).toString('base64');
+      return encryptSecure(text);
     } catch (error) {
       console.error('Encryption error:', error);
       throw new Error('Failed to encrypt data');
     }
   }
 
+  /**
+   * Decrypt an encrypted API credential. This method supports multiple
+   * formats for backwards compatibility:
+   *
+   * 1. The new AES‑256‑GCM format (`iv:tag:cipher`), which is decoded
+   *    using the decryptSecure helper.
+   * 2. Base64‑encoded plain text (legacy format). When detected the
+   *    decoded value is returned after trimming control characters.
+   * 3. Old AES‑256‑CBC format (`iv:cipher` or plain hex), which is
+   *    decrypted using the previously hardcoded key. This branch exists
+   *    solely to allow users to migrate existing API keys without
+   *    re‑entering them immediately.
+   */
   private decrypt(encryptedText: string): string {
     try {
-      // Check if it's base64 encoded (new format)
-      if (encryptedText.match(/^[A-Za-z0-9+/=]+$/)) {
+      // New secure format: iv:tag:cipher
+      if (encryptedText.includes(':') && encryptedText.split(':').length === 3) {
+        return decryptSecure(encryptedText).trim().replace(/[\x00-\x1F\x7F-\x9F]/g, '');
+      }
+
+      // Legacy base64 encoded credentials
+      if (/^[A-Za-z0-9+/=]+$/.test(encryptedText)) {
         const decrypted = Buffer.from(encryptedText, 'base64').toString('utf8');
-        // Clean and validate the decrypted string
         return decrypted.trim().replace(/[\x00-\x1F\x7F-\x9F]/g, '');
       }
-      
-      // Fallback for old encryption format
+
+      // Fallback for very old AES‑CBC formats
       const algorithm = 'aes-256-cbc';
       const key = crypto.createHash('sha256').update(this.encryptionKey).digest();
       const parts = encryptedText.split(':');
       
       if (parts.length !== 2) {
-        // Try old decipher method
+        // Try extremely old decipher method that used passphrase directly
         const decipher = crypto.createDecipher('aes-256-cbc', this.encryptionKey);
         let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
         decrypted += decipher.final('utf8');
         return decrypted.trim().replace(/[\x00-\x1F\x7F-\x9F]/g, '');
       }
-      
+
       const iv = Buffer.from(parts[0], 'hex');
       const encryptedData = parts[1];
       const decipher = crypto.createDecipheriv(algorithm, key, iv);
