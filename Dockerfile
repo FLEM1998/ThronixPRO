@@ -1,31 +1,39 @@
 # ---------- Build stage ----------
 FROM node:20-alpine AS builder
 WORKDIR /app
-# build tools only for build stage
+
+# Toolchain for node-gyp & friends
 RUN apk add --no-cache python3 make g++
-COPY package*.json ./
-COPY tsconfig.json ./
-RUN npm ci --silent
+
+# Copy only manifests first for better cache
+COPY package.json package-lock.json ./
+
+# Install deps with logs visible; relax peer deps if needed
+# (remove --legacy-peer-deps if your lockfile is clean)
+RUN npm ci --no-audit --no-fund --legacy-peer-deps
+
+# Bring in the rest of the source
 COPY . .
-# Build client to dist/public and server to dist/
+
+# (Optional) Generate clients that some libs expect at build time
+# RUN npx prisma generate
+
+# Build client+server to dist/
 RUN npm run build
 
-# ---------- Production stage ----------
-FROM node:20-alpine AS production
-WORKDIR /app
+# Strip devDependencies but keep compiled binaries
+RUN npm prune --omit=dev
 
-# Ensure prod mode at runtime
+# ---------- Runtime stage ----------
+FROM node:20-alpine AS runner
+WORKDIR /app
 ENV NODE_ENV=production
 
-# Copy only what we need
+# Copy pruned, compiled node_modules and built app
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/package*.json ./
 
-# Install production deps only
-RUN npm ci --omit=dev --silent
-
-# Render/most hosts inject PORT; EXPOSE is informational
+# Whatever your server binds to, ensure it uses process.env.PORT and 0.0.0.0
 EXPOSE 5000
-
-# Start server (must read process.env.PORT in your code)
 CMD ["node", "dist/index.js"]
