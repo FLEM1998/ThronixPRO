@@ -1,20 +1,24 @@
 // server/index.ts
 
-// Load .env early in development only (no top-level await)
-import dotenv from "dotenv";
-if (process.env.NODE_ENV !== "production") {
-  dotenv.config({ path: ".env" });
-}
-
 import express, { type Request, type Response, type NextFunction } from "express";
 import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import compression from "compression";
 import cors from "cors";
-import crypto from "crypto";
+import { randomUUID } from "node:crypto";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { initializeDatabase } from "./init-database";
+
+/* -------------------- Load .env in development (safe for prod) -------------------- */
+// Use a dynamic import so production does not require the package.
+if (process.env.NODE_ENV !== "production") {
+  try {
+    await import("dotenv/config"); // Top-level await is supported in Node 20 ESM
+  } catch {
+    console.warn("dotenv not installed; skipping .env load");
+  }
+}
 
 /* ----------------------------- Process guards ----------------------------- */
 
@@ -46,32 +50,34 @@ app.use(
           useDefaults: true,
           directives: {
             "default-src": ["'self'"],
-            "script-src": ["'self'", "'unsafe-inline'"], // adjust if you disallow inline in prod
+            "script-src": ["'self'", "'unsafe-inline'"], // tighten if you can remove inline
             "style-src": ["'self'", "'unsafe-inline'"],
             "img-src": ["'self'", "data:", "https:"],
-            "connect-src": ["'self'", ...(process.env.ALLOW_CONNECT_SRC?.split(",").map(s => s.trim()).filter(Boolean) || [])],
+            "connect-src": [
+              "'self'",
+              ...(process.env.ALLOW_CONNECT_SRC?.split(",").map((s) => s.trim()).filter(Boolean) || []),
+            ],
             "frame-ancestors": ["'self'"],
             "object-src": ["'none'"],
             "base-uri": ["'self'"],
           },
         }
       : false,
-    crossOriginEmbedderPolicy: false, // allow third-party iframes/assets if needed
+    crossOriginEmbedderPolicy: false,
     referrerPolicy: { policy: "no-referrer" },
     hidePoweredBy: true,
-    hsts: isProd ? { maxAge: 15552000 } : undefined, // 180 days
+    hsts: isProd ? { maxAge: 15552000 } : undefined, // ~180 days
   })
 );
 
 /* --------------------------------- CORS ----------------------------------- */
 /** Strict allow-list if CORS_ORIGIN is set (comma-separated). If FE/BE same origin, omit CORS_ORIGIN. */
 if (process.env.CORS_ORIGIN) {
-  const allow = process.env.CORS_ORIGIN.split(",").map(s => s.trim()).filter(Boolean);
+  const allow = process.env.CORS_ORIGIN.split(",").map((s) => s.trim()).filter(Boolean);
   app.use(
     cors({
       origin(origin, callback) {
-        // Allow same-origin or tools (no origin header)
-        if (!origin) return callback(null, true);
+        if (!origin) return callback(null, true); // same-origin / curl
         if (allow.includes(origin)) return callback(null, true);
         return callback(new Error("CORS: Origin not allowed"));
       },
@@ -124,15 +130,12 @@ app.get("/healthz", (_req, res) => res.status(200).send("ok"));
 /** Minimal API logger with secret redaction. Avoids logging bodies for non-/api paths. */
 
 function redactSecrets(input: string): string {
-  // Redact common credential fields; keep it simple and safe
   const patterns = [
     /("(?:api_?key|access_?key|secret|password|passphrase|token|authorization)"\s*:\s*)"(.*?)"/gi,
-    // Bearer tokens in headers or body
     /(authorization"\s*:\s*")Bearer [^"]+"/gi,
   ];
   let out = input;
   for (const re of patterns) out = out.replace(re, (_m, p1) => `${p1}"[REDACTED]"`);
-  // Also redact anything that looks like a JWT
   out = out.replace(/\beyJ[A-Za-z0-9_\-]+?\.[A-Za-z0-9_\-]+?\.[A-Za-z0-9_\-]+/g, "[REDACTED_JWT]");
   return out;
 }
@@ -140,8 +143,7 @@ function redactSecrets(input: string): string {
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
-  // Correlate requests
-  const reqId = crypto.randomUUID();
+  const reqId = randomUUID();
   res.setHeader("X-Request-ID", reqId);
 
   let capturedJsonResponse: unknown;
@@ -233,4 +235,3 @@ app.use((req, res, next) => {
     process.exit(1);
   }
 })();
-
