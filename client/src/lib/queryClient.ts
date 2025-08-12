@@ -1,76 +1,70 @@
-import { QueryClient, QueryFunction } from "@tanstack/react-query";
-
-async function throwIfResNotOk(res: Response) {
-  if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
-  }
-}
-
-export async function apiRequest(
-  method: string,
-  url: string,
-  data?: unknown | undefined,
-): Promise<Response> {
-  const token = localStorage.getItem('thronix_token');
-  const headers: Record<string, string> = {};
-  
-  if (data) {
-    headers["Content-Type"] = "application/json";
-  }
-  
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
-  const res = await fetch(url, {
-    method,
-    headers,
-    body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
-  });
-
-  await throwIfResNotOk(res);
-  return res;
-}
-
-type UnauthorizedBehavior = "returnNull" | "throw";
-export const getQueryFn: <T>(options: {
-  on401: UnauthorizedBehavior;
-}) => QueryFunction<T> =
-  ({ on401: unauthorizedBehavior }) =>
-  async ({ queryKey }) => {
-    const token = localStorage.getItem('thronix_token');
-    const headers: Record<string, string> = {};
-    
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
-
-    const res = await fetch(queryKey[0] as string, {
-      headers,
-      credentials: "include",
-    });
-
-    if (unauthorizedBehavior === "returnNull" && res.status === 401) {
-      return null;
-    }
-
-    await throwIfResNotOk(res);
-    return await res.json();
-  };
+import { QueryClient } from '@tanstack/react-query';
 
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      queryFn: getQueryFn({ on401: "throw" }),
-      refetchInterval: false,
+      staleTime: 15_000,
       refetchOnWindowFocus: false,
-      staleTime: Infinity,
-      retry: false,
-    },
-    mutations: {
-      retry: false,
+      retry: 1,
     },
   },
 });
+
+function safeLocalStorageGet(key: string): string | null {
+  try {
+    if (typeof window === 'undefined') return null;
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+export function getToken(): string | null {
+  // accept either key your app might be using
+  const raw =
+    safeLocalStorageGet('thronix_token') ?? safeLocalStorageGet('token');
+  return raw && raw !== 'null' && raw !== 'undefined' ? raw : null;
+}
+
+type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+
+export async function apiRequest<T = any>(
+  url: string,
+  method: HttpMethod = 'GET',
+  body?: unknown,
+  init?: RequestInit
+): Promise<T> {
+  const headers = new Headers({ 'Content-Type': 'application/json' });
+  const token = getToken();
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+
+  const res = await fetch(url, {
+    method,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+    ...init,
+  });
+
+  // Try to parse JSON if possible, but keep the error informative
+  const text = await res.text();
+  const parseJson = () => {
+    try {
+      return text ? JSON.parse(text) : {};
+    } catch {
+      return text;
+    }
+  };
+
+  if (!res.ok) {
+    const payload = parseJson();
+    // Surface a useful error; React Query will catch it
+    throw new Error(
+      typeof payload === 'string'
+        ? `${res.status} ${payload}`
+        : `${res.status} ${payload?.error ?? res.statusText}`
+    );
+  }
+
+  return (text ? JSON.parse(text) : {}) as T;
+}
+
