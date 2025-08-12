@@ -1,7 +1,7 @@
 // server/db.ts — Render Postgres (pg) + Drizzle
 
-import dotenv from "dotenv";
-dotenv.config(); // ensure .env is loaded before checks
+
+
 
 import { Pool } from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
