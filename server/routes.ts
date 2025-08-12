@@ -2693,9 +2693,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
     });
 
-createSubscription
 
-ai_service/app.py
 
   /**
    * Support ticket endpoint
