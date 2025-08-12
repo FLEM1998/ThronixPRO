@@ -19,22 +19,22 @@ const registerSchema = z.object({
   password: z.string().min(8, 'Password must be at least 8 characters'),
   confirmPassword: z.string(),
   termsAccepted: z.boolean().refine((val) => val === true, {
-    message: "You must accept the legal disclaimer to register",
+    message: 'You must accept the legal disclaimer to register',
   }),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords don't match",
-  path: ["confirmPassword"],
+  path: ['confirmPassword'],
 });
 
 type RegisterForm = z.infer<typeof registerSchema>;
 
 export default function Register() {
-  useTitle("ThronixPRO - Register");
+  useTitle('ThronixPRO - Register');
   const [, setLocation] = useLocation();
   const [error, setError] = useState<string>('');
   const [showDisclaimer, setShowDisclaimer] = useState(true);
   const [termsAccepted, setTermsAccepted] = useState(false);
-  
+
   const form = useForm<RegisterForm>({
     resolver: zodResolver(registerSchema),
     defaultValues: {
@@ -46,17 +46,36 @@ export default function Register() {
     },
   });
 
+  // Register -> then auto login -> store token
   const registerMutation = useMutation({
-    mutationFn: async (data: Omit<RegisterForm, 'confirmPassword'>) => {
-      const response = await apiRequest('POST', '/api/auth/register', data);
-      return await response.json();
+    mutationFn: async (formData: RegisterForm) => {
+      // Only send what the server expects
+      const payload = {
+        name: formData.name,
+        email: formData.email,
+        password: formData.password,
+      };
+
+      // 1) create account
+      await apiRequest('/api/auth/register', 'POST', payload);
+
+      // 2) login to get JWT (server’s register route doesn’t return token)
+      const loginRes = await apiRequest<{ token: string; user: any }>(
+        '/api/auth/login',
+        'POST',
+        { email: payload.email, password: payload.password }
+      );
+
+      return loginRes;
     },
-    onSuccess: (data: any) => {
+    onSuccess: (data) => {
+      // Store token (support both keys for existing code paths)
+      localStorage.setItem('thronix_token', data.token);
       localStorage.setItem('token', data.token);
       setLocation('/');
     },
-    onError: (error: any) => {
-      setError(error.message || 'Registration failed');
+    onError: (err: any) => {
+      setError(err?.message || 'Registration failed');
     },
   });
 
@@ -72,20 +91,17 @@ export default function Register() {
 
   const onSubmit = (data: RegisterForm) => {
     setError('');
-    console.log('Form submission data:', data);
     if (!data.termsAccepted) {
       setError('You must accept the legal disclaimer to register');
       return;
     }
-    const { confirmPassword, ...registerData } = data;
-    console.log('Sending to server:', registerData);
-    registerMutation.mutate(registerData);
+    registerMutation.mutate(data);
   };
 
   // Show legal disclaimer first
   if (showDisclaimer) {
     return (
-      <LegalDisclaimer 
+      <LegalDisclaimer
         onAccept={handleAcceptTerms}
         onDecline={handleDeclineTerms}
       />
@@ -115,7 +131,7 @@ export default function Register() {
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
             )}
-            
+
             <div className="space-y-2">
               <Label htmlFor="name" className="text-slate-200">Full Name</Label>
               <Input
@@ -163,7 +179,7 @@ export default function Register() {
                 id="confirmPassword"
                 type="password"
                 {...form.register('confirmPassword')}
-                className="bg-slate-800/50 border-slate-600 text-white placeholder:text-slate-400"
+                className="bg-white/90 border-gray-300 text-gray-900 placeholder:text-gray-500 focus:bg-white focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 h-12 text-base"
                 placeholder="Confirm your password"
               />
               {form.formState.errors.confirmPassword && (
