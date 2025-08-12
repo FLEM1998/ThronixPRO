@@ -46,36 +46,55 @@ export default function Register() {
     },
   });
 
-  // Register -> then auto login -> store token
+  // Register (expect token). If token missing (older server), auto-login as fallback.
   const registerMutation = useMutation({
     mutationFn: async (formData: RegisterForm) => {
-      // Only send what the server expects
       const payload = {
         name: formData.name,
         email: formData.email,
         password: formData.password,
       };
 
-      // 1) create account
-      await apiRequest('/api/auth/register', 'POST', payload);
+      // 1) Try register
+      const regRes = await apiRequest('POST', '/api/auth/register', payload);
+      const regData = await regRes.json();
 
-      // 2) login to get JWT (server’s register route doesn’t return token)
-      const loginRes = await apiRequest<{ token: string; user: any }>(
-        '/api/auth/login',
-        'POST',
-        { email: payload.email, password: payload.password }
-      );
+      // New server returns { user, token }
+      if (regRes.ok && regData?.token) {
+        return regData as { token: string; user: any };
+      }
 
-      return loginRes;
+      // 2) Fallback: login to get token if register succeeded but no token returned
+      // (or if server responded 200 without token for legacy behavior)
+      const loginRes = await apiRequest('POST', '/api/auth/login', {
+        email: payload.email,
+        password: payload.password,
+      });
+      const loginData = await loginRes.json();
+
+      if (!loginRes.ok) {
+        throw new Error(loginData?.error || 'Login after register failed');
+      }
+
+      return loginData as { token: string; user: any };
     },
     onSuccess: (data) => {
+      if (!data?.token) {
+        setError('No token received from server');
+        return;
+      }
       // Store token (support both keys for existing code paths)
       localStorage.setItem('thronix_token', data.token);
       localStorage.setItem('token', data.token);
       setLocation('/');
     },
-    onError: (err: any) => {
-      setError(err?.message || 'Registration failed');
+    onError: async (err: any) => {
+      // Try to extract server error message if available
+      const msg =
+        err?.message ||
+        (typeof err === 'string' ? err : '') ||
+        'Registration failed';
+      setError(msg);
     },
   });
 
@@ -198,7 +217,7 @@ export default function Register() {
 
           <div className="mt-6 text-center">
             <p className="text-slate-400">
-              Already have an account?{' '}
+              Already have an account{' '}
               <Link href="/login" className="text-purple-400 hover:text-purple-300 transition-colors">
                 Sign in
               </Link>
