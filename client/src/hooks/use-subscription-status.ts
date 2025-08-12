@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiRequest } from '@/lib/queryClient';
+import { apiRequest, getToken } from '@/lib/queryClient';
 
 interface SubscriptionStatus {
   isActive: boolean;
@@ -21,43 +21,48 @@ export function useSubscriptionStatus() {
   const queryClient = useQueryClient();
   const [isLocked, setIsLocked] = useState(false);
 
-  // Check subscription status
-  const { data: subscriptionStatus, isLoading, error, refetch } = useQuery<SubscriptionStatus>({
-    queryKey: ['/api/subscription/status'],
-    refetchInterval: 30000, // Check every 30 seconds
-    refetchOnWindowFocus: true,
-    retry: 3,
+  // read token once per render; if no token, do NOT call protected endpoints
+  const token = getToken();
+
+  const {
+    data: subscriptionStatus,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery<SubscriptionStatus>({
+    queryKey: ['/api/subscription/status', Boolean(token)],
+    queryFn: async () => apiRequest('/api/subscription/status'),
+    enabled: Boolean(token),               // <-- gate behind token
+    refetchInterval: token ? 30000 : false,
+    refetchOnWindowFocus: Boolean(token),
+    retry: false,
   });
 
-  // Verify subscription mutation
   const verifySubscriptionMutation = useMutation({
-    mutationFn: async (data: SubscriptionVerificationData) => {
-      return apiRequest('/api/subscription/verify', 'POST', data);
-    },
+    mutationFn: async (data: SubscriptionVerificationData) =>
+      apiRequest('/api/subscription/verify', 'POST', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/subscription/status'] });
     },
   });
 
-  // Update lockout state based on subscription status
   useEffect(() => {
     if (subscriptionStatus && !isLoading) {
       setIsLocked(!subscriptionStatus.isActive);
+    } else if (!token) {
+      // logged out or registering: don't show lockout banner
+      setIsLocked(false);
     }
-  }, [subscriptionStatus, isLoading]);
+  }, [subscriptionStatus, isLoading, token]);
 
   const verifySubscription = async (data: SubscriptionVerificationData) => {
     try {
       await verifySubscriptionMutation.mutateAsync(data);
       return true;
-    } catch (error) {
-      console.error('Subscription verification failed:', error);
+    } catch (err) {
+      console.error('Subscription verification failed:', err);
       return false;
     }
-  };
-
-  const retryVerification = () => {
-    refetch();
   };
 
   return {
@@ -66,7 +71,7 @@ export function useSubscriptionStatus() {
     isLocked,
     error,
     verifySubscription,
-    retryVerification,
+    retryVerification: refetch,
     isVerifying: verifySubscriptionMutation.isPending,
   };
 }
