@@ -12,11 +12,18 @@ export const users = pgTable("users", {
   verificationExpires: timestamp("verification_expires"),
   passwordResetToken: text("password_reset_token"),
   passwordResetExpires: timestamp("password_reset_expires"),
+
+  // NEW: bind a single account to a device (nullable so web users without deviceId still work)
+  deviceId: text("device_id").unique(),
+
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (table) => ({
   emailIdx: index("email_idx").on(table.email),
   verificationTokenIdx: index("verification_token_idx").on(table.verificationToken),
   passwordResetTokenIdx: index("password_reset_token_idx").on(table.passwordResetToken),
+
+  // Optional explicit index (unique() already creates a unique constraint)
+  deviceIdIdx: index("device_id_idx").on(table.deviceId),
 }));
 
 export const tradingBots = pgTable("trading_bots", {
@@ -350,6 +357,8 @@ export type InsertPaperTradingBalance = z.infer<typeof insertPaperTradingBalance
 export const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
+  // NEW: allow optional device binding on login
+  deviceId: z.string().min(1).optional(),
 });
 
 // Client-side registration schema (includes confirmPassword validation)
@@ -364,6 +373,7 @@ export const registerSchema = insertUserSchema.extend({
 });
 
 // Server-side registration schema (no confirmPassword needed)
+// NOTE: insertUserSchema already includes optional deviceId.
 export const serverRegisterSchema = insertUserSchema.extend({
   termsAccepted: z.boolean().refine((val) => val === true, {
     message: "You must accept the legal disclaimer to register",
