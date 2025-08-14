@@ -3343,7 +3343,14 @@ app.get("/api/health", (req, res) => {
     }
   });
 
-  return httpServer;
+  
+
+// Catch-all 404 (must be last within registerRoutes)
+app.use((req, res) => {
+  res.status(404).json({ error: "Route not found" });
+});
+
+return httpServer;
 }
 
 // Chart data generation function
@@ -3404,8 +3411,3 @@ function generateChartData(currentPrice: number, change24h: number, timeframe: s
 
   return data;
 }
-
-
-
-// Global 404 handler
-app.use((req, res) => { res.status(404).json({ error: 'Route not found' }); });
