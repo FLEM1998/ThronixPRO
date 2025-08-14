@@ -85,77 +85,164 @@ const iapService = new IAPService();
 const encryptData = (text: string): string => encryptSecure(text);
 const decryptData = (encryptedText: string): string => decryptSecure(encryptedText);
 
-// Enhanced authentication middleware with security logging (skips public routes)
-const authenticate = async (
-  req: Request & { user?: any },
-  res: any,
-  next: any
-) => {
-  if (isPublic(req)) return next();
+// auth-middleware.ts
+import type { Request, Response, NextFunction } from "express";
+import jwt, { JwtPayload } from "jsonwebtoken";
+import { storage } from "./storage";
+import { securityLogger } from "./security-logger"; // adjust path
+import { isPublic } from "./is-public"; // see simple helper below
 
+const JWT_SECRET = process.env.JWT_SECRET || process.env.JWT_ACCESS_SECRET || "";
+const JWT_ISSUER = process.env.JWT_ISSUER;    // optional hardening
+const JWT_AUDIENCE = process.env.JWT_AUDIENCE; // optional hardening
+const MAX_CLOCK_SKEW_SEC = Number(process.env.JWT_MAX_CLOCK_SKEW_SEC || 60); // allow slight skew
+
+if (!JWT_SECRET) {
+  throw new Error("JWT_SECRET must be set");
+}
+
+type AuthedRequest = Request & { user?: any };
+
+function getClientIP(req: Request): string {
+  // Render sits behind a proxy; use X-Forwarded-For first
+  const xff = (req.headers["x-forwarded-for"] || "") as string;
+  const firstHop = xff.split(",")[0]?.trim();
+  return (
+    firstHop ||
+    (req.ip || (req as any).connection?.remoteAddress || "").toString()
+  );
+}
+
+function getBearerToken(req: Request): string | undefined {
+  // 1) Authorization header
   const authHeader = req.headers.authorization || "";
   const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
-  const token = bearerMatch ? bearerMatch[1] : (authHeader || undefined);
-  const clientIP = (req.ip || (req as any).connection?.remoteAddress || "").toString();
-  const url = req.originalUrl || req.path;
+  if (bearerMatch) return bearerMatch[1];
+
+  // 2) Raw token in Authorization (some clients do this)
+  if (authHeader && !authHeader.toLowerCase().startsWith("bearer")) {
+    return authHeader;
+  }
+
+  // 3) Cookie fallback (useful for browser calls)
+  const cookie = req.headers.cookie || "";
+  const tokenFromCookie =
+    cookie
+      .split(";")
+      .map((c) => c.trim())
+      .find((c) => c.startsWith("access_token="))
+      ?.split("=")[1];
+
+  return tokenFromCookie;
+}
+
+export async function authenticate(
+  req: AuthedRequest,
+  res: Response,
+  next: NextFunction
+) {
+  // Skip CORS preflight & public routes
+  if (req.method === "OPTIONS" || isPublic(req)) return next();
+
+  const token = getBearerToken(req);
+  const clientIP = getClientIP(req);
+  const url = (req as any).originalUrl || req.path;
+  const userAgent = req.get("User-Agent");
 
   if (!token) {
     securityLogger.warn("Authentication failed: No token provided", {
       ip: clientIP,
-      userAgent: req.get("User-Agent"),
-      path: url,                              // <-- changed
+      userAgent,
+      path: url,
     });
     return res.status(401).json({ error: "No token provided" });
   }
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET as string) as {
-      id?: number;
-      userId?: number;
-      email?: string;
-    };
+    const decoded = jwt.verify(token, JWT_SECRET, {
+      // These add defense-in-depth if you set them
+      issuer: JWT_ISSUER,
+      audience: JWT_AUDIENCE,
+      // Accept small clock skew to reduce spurious failures on Render
+      clockTolerance: MAX_CLOCK_SKEW_SEC,
+      algorithms: ["HS256", "HS384", "HS512"], // restrict algs
+    }) as JwtPayload & { id?: number; userId?: number; email?: string };
 
-    const userId = decoded.userId ?? decoded.id;
-    if (!userId || Number.isNaN(Number(userId))) {
+    const userId = Number(decoded.userId ?? decoded.id);
+    if (!userId || Number.isNaN(userId)) {
       securityLogger.warn("Authentication failed: Invalid token payload", {
         ip: clientIP,
-        userAgent: req.get("User-Agent"),
-        path: url,                            // <-- changed
+        userAgent,
+        path: url,
       });
       return res.status(401).json({ error: "Invalid token" });
     }
 
-    const user = await storage.getUser(Number(userId));
+    const user = await storage.getUser(userId);
     if (!user) {
       securityLogger.warn("Authentication failed: User not found", {
         userId,
         ip: clientIP,
-        userAgent: req.get("User-Agent"),
-        path: url,                            // <-- changed
+        userAgent,
+        path: url,
       });
       return res.status(401).json({ error: "User not found" });
     }
 
-    securityLogger.info("User authenticated successfully", {
+    // Optional: additional checks (disable/ban flags, email verified, etc.)
+    if (user.disabled || user.deletedAt) {
+      securityLogger.warn("Authentication failed: User disabled", {
+        userId: user.id,
+        ip: clientIP,
+        userAgent,
+        path: url,
+      });
+      return res.status(403).json({ error: "Account disabled" });
+    }
+
+    securityLogger.info("User authenticated", {
       userId: user.id,
       ip: clientIP,
-      userAgent: req.get("User-Agent"),
-      path: url,                              // <-- optional, for consistency
+      userAgent,
+      path: url,
+      // Never log full token; avoid PII
     });
 
-    (req as any).user = user;
-    next();
+    req.user = user;
+    return next();
   } catch (error: any) {
     securityLogger.error("Token validation failed", {
       error: error?.message,
       ip: clientIP,
-      userAgent: req.get("User-Agent"),
-      path: url,                              // <-- changed
+      userAgent,
+      path: url,
       tokenPreview: typeof token === "string" ? token.slice(0, 10) + "…" : "(n/a)",
     });
     return res.status(401).json({ error: "Invalid or expired token" });
   }
-};
+}
+
+/** Example minimal public-route helper (customize to your app) */
+export function isPublic(req: Request): boolean {
+  const url = (req as any).originalUrl || req.path || "";
+  // Health checks & assets
+  if (req.method === "GET" && (
+      url.startsWith("/healthz") ||
+      url.startsWith("/public/") ||
+      url.startsWith("/assets/") ||
+      url === "/" ||
+      url.startsWith("/docs")
+    )) return true;
+
+  // Auth endpoints
+  if (url.startsWith("/api/auth/login") ||
+      url.startsWith("/api/auth/register") ||
+      url.startsWith("/api/auth/forgot-password") ||
+      url.startsWith("/api/auth/refresh")
+  ) return true;
+
+  return false;
+}
 
 
 /**
