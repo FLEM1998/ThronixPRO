@@ -31,23 +31,43 @@ import { auditLog, readRecentLogs } from "./audit-logger";
 import { getSystemMetrics } from "./monitoring-service";
 import { encrypt as encryptSecure, decrypt as decryptSecure } from "./crypto";
 // ---- Public route guard (keeps register/login/health open) ----
-function isPublic(req: Request): boolean {
-  // Health checks
-  if (req.path === "/healthz" || req.path === "/api/health") return true;
+function isPublic(req: import("express").Request): boolean {
+  // Always prefer originalUrl; fall back to baseUrl+path; then path
+  const url =
+    (req.originalUrl ||
+      ((req as any).baseUrl || "") + req.path ||
+      req.path ||
+      "") as string;
 
-  // Auth flows (register/login/forgot/reset)
-  if (req.path.startsWith("/api/auth/")) return true;
+  // Health checks
+  if (url === "/healthz" || url === "/api/health") return true;
+
+  // Auth flows (register/login/forgot/reset) — match both with and without "/auth"
+  if (
+    url.startsWith("/api/auth/") ||
+    url.startsWith("/auth/") ||
+    url.startsWith("/api/register") ||
+    url.startsWith("/api/login") ||
+    url.startsWith("/api/forgot") ||
+    url.startsWith("/api/reset")
+  ) {
+    return true;
+  }
 
   // Static/download pages if you expose them
-  if (req.method === "GET" && (req.path.startsWith("/download") || req.path.startsWith("/public"))) {
+  if (
+    req.method === "GET" &&
+    (url.startsWith("/download") || url.startsWith("/public"))
+  ) {
     return true;
   }
 
   // Anonymous subscription status
-  if (req.path === "/api/subscription/status") return true;
+  if (url === "/api/subscription/status") return true;
 
   return false;
 }
+
 
 const JWT_SECRET = process.env.JWT_SECRET;
 // For AI microservice calls; defaults to localhost if not provided
@@ -71,19 +91,19 @@ const authenticate = async (
   res: any,
   next: any
 ) => {
-  // Let public endpoints through without a token
   if (isPublic(req)) return next();
 
   const authHeader = req.headers.authorization || "";
   const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
   const token = bearerMatch ? bearerMatch[1] : (authHeader || undefined);
   const clientIP = (req.ip || (req as any).connection?.remoteAddress || "").toString();
+  const url = req.originalUrl || req.path;
 
   if (!token) {
     securityLogger.warn("Authentication failed: No token provided", {
       ip: clientIP,
       userAgent: req.get("User-Agent"),
-      path: req.path,
+      path: url,                              // <-- changed
     });
     return res.status(401).json({ error: "No token provided" });
   }
@@ -100,7 +120,7 @@ const authenticate = async (
       securityLogger.warn("Authentication failed: Invalid token payload", {
         ip: clientIP,
         userAgent: req.get("User-Agent"),
-        path: req.path,
+        path: url,                            // <-- changed
       });
       return res.status(401).json({ error: "Invalid token" });
     }
@@ -111,6 +131,7 @@ const authenticate = async (
         userId,
         ip: clientIP,
         userAgent: req.get("User-Agent"),
+        path: url,                            // <-- changed
       });
       return res.status(401).json({ error: "User not found" });
     }
@@ -119,6 +140,7 @@ const authenticate = async (
       userId: user.id,
       ip: clientIP,
       userAgent: req.get("User-Agent"),
+      path: url,                              // <-- optional, for consistency
     });
 
     (req as any).user = user;
@@ -128,11 +150,13 @@ const authenticate = async (
       error: error?.message,
       ip: clientIP,
       userAgent: req.get("User-Agent"),
+      path: url,                              // <-- changed
       tokenPreview: typeof token === "string" ? token.slice(0, 10) + "…" : "(n/a)",
     });
     return res.status(401).json({ error: "Invalid or expired token" });
   }
 };
+
 
 /**
  * Optional auth: attaches req.user if a valid Bearer token exists; otherwise continues.
