@@ -30,6 +30,25 @@ import { IAPService } from "./iap-service";
 import { auditLog, readRecentLogs } from "./audit-logger";
 import { getSystemMetrics } from "./monitoring-service";
 import { encrypt as encryptSecure, decrypt as decryptSecure } from "./crypto";
+// ---- Public route guard (keeps register/login/health open) ----
+function isPublic(req: Request): boolean {
+  // Health checks
+  if (req.path === "/healthz" || req.path === "/api/health") return true;
+
+  // Auth flows (register/login/forgot/reset)
+  if (req.path.startsWith("/api/auth/")) return true;
+
+  // Static/download pages if you expose them
+  if (req.method === "GET" && (req.path.startsWith("/download") || req.path.startsWith("/public"))) {
+    return true;
+  }
+
+  // Anonymous subscription status
+  if (req.path === "/api/subscription/status") return true;
+
+  return false;
+}
+
 const JWT_SECRET = process.env.JWT_SECRET;
 // For AI microservice calls; defaults to localhost if not provided
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:5001";
@@ -46,10 +65,19 @@ const iapService = new IAPService();
 const encryptData = (text: string): string => encryptSecure(text);
 const decryptData = (encryptedText: string): string => decryptSecure(encryptedText);
 
-// Enhanced authentication middleware with security logging
-const authenticate = async (req: any, res: any, next: any) => {
-  const token = req.headers.authorization?.replace("Bearer ", "");
-  const clientIP = req.ip || req.connection.remoteAddress;
+// Enhanced authentication middleware with security logging (skips public routes)
+const authenticate = async (
+  req: Request & { user?: any },
+  res: any,
+  next: any
+) => {
+  // Let public endpoints through without a token
+  if (isPublic(req)) return next();
+
+  const authHeader = req.headers.authorization || "";
+  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+  const token = bearerMatch ? bearerMatch[1] : (authHeader || undefined);
+  const clientIP = (req.ip || (req as any).connection?.remoteAddress || "").toString();
 
   if (!token) {
     securityLogger.warn("Authentication failed: No token provided", {
@@ -61,64 +89,96 @@ const authenticate = async (req: any, res: any, next: any) => {
   }
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: number };
-    const user = await storage.getUser(decoded.userId);
+    const decoded = jwt.verify(token, JWT_SECRET as string) as {
+      id?: number;
+      userId?: number;
+      email?: string;
+    };
+
+    const userId = decoded.userId ?? decoded.id;
+    if (!userId || Number.isNaN(Number(userId))) {
+      securityLogger.warn("Authentication failed: Invalid token payload", {
+        ip: clientIP,
+        userAgent: req.get("User-Agent"),
+        path: req.path,
+      });
+      return res.status(401).json({ error: "Invalid token" });
+    }
+
+    const user = await storage.getUser(Number(userId));
     if (!user) {
       securityLogger.warn("Authentication failed: User not found", {
-        userId: decoded.userId,
+        userId,
         ip: clientIP,
         userAgent: req.get("User-Agent"),
       });
       return res.status(401).json({ error: "User not found" });
     }
 
-    // Log successful authentication
     securityLogger.info("User authenticated successfully", {
       userId: user.id,
       ip: clientIP,
       userAgent: req.get("User-Agent"),
     });
 
-    req.user = user;
+    (req as any).user = user;
     next();
   } catch (error: any) {
     securityLogger.error("Token validation failed", {
-      error: error.message,
+      error: error?.message,
       ip: clientIP,
       userAgent: req.get("User-Agent"),
-      token: token.substring(0, 10) + "...", // Only log first 10 chars for security
+      tokenPreview: typeof token === "string" ? token.slice(0, 10) + "…" : "(n/a)",
     });
-    return res.status(401).json({ error: "Invalid token" });
+    return res.status(401).json({ error: "Invalid or expired token" });
   }
 };
 
 /**
- * Optional authentication: attach req.user if a valid Bearer token is present.
- * Otherwise proceed without error. Useful for endpoints that should be safe
- * for anonymous users but richer when authenticated.
+ * Optional auth: attaches req.user if a valid Bearer token exists; otherwise continues.
+ * Useful for endpoints that are public but can return richer data when logged in.
  */
-const authenticateOptional = async (req: any, _res: any, next: any) => {
-  const auth = req.headers.authorization;
-  if (!auth) return next();
+const authenticateOptional = async (
+  req: Request & { user?: any },
+  _res: any,
+  next: any
+) => {
+  const authHeader = req.headers.authorization || "";
+  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+  const token = bearerMatch ? bearerMatch[1] : undefined;
+
+  if (!token) return next();
+
   try {
-    const token = auth.replace("Bearer ", "");
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: number };
-    const user = await storage.getUser(decoded.userId);
-    if (user) req.user = user;
+    const decoded = jwt.verify(token, JWT_SECRET as string) as {
+      id?: number;
+      userId?: number;
+      email?: string;
+    };
+    const userId = decoded.userId ?? decoded.id;
+    if (userId) {
+      const user = await storage.getUser(Number(userId));
+      if (user) (req as any).user = user;
+    }
   } catch {
-    // ignore – treat as anonymous
+    // ignore and proceed as anonymous
   }
   next();
 };
 
-// Subscription verification middleware - MANDATORY for app access
-const requireActiveSubscription = async (req: any, res: any, next: any) => {
+// Enforce active subscription (never blocks public routes)
+const requireActiveSubscription = async (
+  req: Request & { user?: any },
+  res: any,
+  next: any
+) => {
+  if (isPublic(req)) return next(); // safety if middleware is mounted broadly
+
   if (!req.user) {
     return res.status(401).json({ error: "Authentication required" });
   }
 
   try {
-    // Check user's subscription status from database
     const subscriptionStatus = await storage.getUserSubscriptionStatus(req.user.id);
 
     if (!subscriptionStatus || !subscriptionStatus.isActive) {
@@ -128,7 +188,6 @@ const requireActiveSubscription = async (req: any, res: any, next: any) => {
         path: req.path,
         subscriptionStatus,
       });
-
       return res.status(402).json({
         error: "SUBSCRIPTION_REQUIRED",
         message: "Active subscription required for app access",
@@ -136,16 +195,11 @@ const requireActiveSubscription = async (req: any, res: any, next: any) => {
       });
     }
 
-    // Check if subscription has expired
-    if (
-      subscriptionStatus.expiryDate &&
-      new Date(subscriptionStatus.expiryDate) < new Date()
-    ) {
+    if (subscriptionStatus.expiryDate && new Date(subscriptionStatus.expiryDate) < new Date()) {
       securityLogger.warn("Access denied: Expired subscription", {
         userId: req.user.id,
         expiryDate: subscriptionStatus.expiryDate,
       });
-
       return res.status(402).json({
         error: "SUBSCRIPTION_EXPIRED",
         message: "Subscription has expired",
@@ -156,11 +210,10 @@ const requireActiveSubscription = async (req: any, res: any, next: any) => {
     next();
   } catch (error: any) {
     securityLogger.error("Subscription verification failed", {
-      error: error.message,
-      userId: req.user.id,
+      error: error?.message,
+      userId: req.user?.id,
       ip: req.ip,
     });
-
     return res.status(500).json({ error: "Subscription verification failed" });
   }
 };
