@@ -55,7 +55,8 @@ app.use(
             "img-src": ["'self'", "data:", "https:"],
             "connect-src": [
               "'self'",
-              ...(process.env.ALLOW_CONNECT_SRC?.split(",").map((s) => s.trim()).filter(Boolean) || []),
+              ...(process.env.ALLOW_CONNECT_SRC?.split(",").map((s) => s.trim()).filter(Boolean) ||
+                []),
             ],
             "frame-ancestors": ["'self'"],
             "object-src": ["'none'"],
@@ -210,10 +211,13 @@ app.use((req, res, next) => {
       serveStatic(app); // PROD: serve built assets
     }
 
-    // Bind to injected port or default 5000
-    const port = Number(process.env.PORT || 5000);
-    const listenOpts: any = { port, host: "0.0.0.0" };
-    if (process.platform !== "win32") listenOpts.reusePort = true;
+    /* --------------------------- Bind & listen --------------------------- */
+    // Respect Render's injected PORT when present; default to 10000 locally
+    const raw = process.env.PORT ?? process.env.SERVER_PORT ?? "10000";
+    const port = Number.isFinite(Number(raw)) ? Number(raw) : 10000;
+
+    // Host: Render => 0.0.0.0, Local Windows => 127.0.0.1 (avoids ENOTSUP on some setups)
+    const host = process.env.HOST ?? (process.env.PORT ? "0.0.0.0" : "127.0.0.1");
 
     // Graceful shutdown
     const shutdown = (sig: string) => {
@@ -227,11 +231,16 @@ app.use((req, res, next) => {
     process.on("SIGTERM", () => shutdown("SIGTERM"));
     process.on("SIGINT", () => shutdown("SIGINT"));
 
-    server.listen(listenOpts, () => {
-      log(`Serving on port ${port}`);
+    server.listen(port, host, () => {
+      log(
+        `HTTP server listening on ${host}:${port} (env PORT=${process.env.PORT ?? "unset"}, NODE_ENV=${
+          process.env.NODE_ENV ?? "unset"
+        })`
+      );
     });
   } catch (e) {
     console.error("Fatal boot error:", e);
     process.exit(1);
   }
 })();
+
