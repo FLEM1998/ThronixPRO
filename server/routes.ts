@@ -1,12 +1,21 @@
 import type { Express } from "express";
+import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
+import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import { body, validationResult } from "express-validator";
+import { storage } from "./storage";
 import { exchangeService } from "./exchange-service";
+import { marketDataService } from "./market-data-service";
 import { emailService } from "./email-service";
+import { aiTradingService } from "./ai-trading-service";
 import downloadRoutes from "./download-routes";
+import downloadPageRoutes from "./download-page";
 import botManagementRoutes from "./bot-management-routes";
+import express from "express";
 import path from "path";
+import {
   loginSchema,
   registerSchema,
   serverRegisterSchema,
@@ -15,10 +24,12 @@ import path from "path";
   forgotPasswordSchema,
   resetPasswordSchema,
 } from "@shared/schema";
-
-
-
-
+import { z } from "zod";
+import { logger, securityLogger, tradingLogger } from "./logger";
+import { IAPService } from "./iap-service";
+import { auditLog, readRecentLogs } from "./audit-logger";
+import { getSystemMetrics } from "./monitoring-service";
+import { encrypt as encryptSecure, decrypt as decryptSecure } from "./crypto";
 const JWT_SECRET = process.env.JWT_SECRET;
 // For AI microservice calls; defaults to localhost if not provided
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:5001";
