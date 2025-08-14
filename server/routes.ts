@@ -201,7 +201,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/", downloadPageRoutes);
 
   // Advanced AI Bot Management routes
-  app.use("/api", botManagementRoutes);
+  app.use("/api/ai", botManagementRoutes);
 
   // Serve static files from root directory for downloads
   app.use(
@@ -267,12 +267,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/exchange/:exchange/pairs", async (req: any, res) => {
     try {
       const exchange = req.params.exchange;
-      console.log(`Fetching trading pairs for ${exchange}...`);
+      logger.info(`Fetching trading pairs for ${exchange}...`);
       const pairs = await exchangeService.getAllTradingPairs(exchange);
-      console.log(`Found ${pairs.length} trading pairs for ${exchange}`);
+      logger.info(`Found ${pairs.length} trading pairs for ${exchange}`);
       res.json({ pairs });
     } catch (error: any) {
-      console.error(
+      logger.error(
         `Error fetching trading pairs for ${req.params.exchange}:`,
         error
       );
@@ -283,9 +283,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Unified trading pairs endpoint for all components
   app.get("/api/trading-pairs", async (req: any, res) => {
     try {
-      console.log("Fetching live trading pairs from KuCoin...");
+      logger.info("Fetching live trading pairs from KuCoin...");
       const pairs = await exchangeService.getAllTradingPairs("kucoin");
-      console.log(`Found ${pairs.length} live trading pairs`);
+      logger.info(`Found ${pairs.length} live trading pairs`);
 
       if (!pairs || pairs.length === 0) {
         return res.status(503).json({
@@ -303,7 +303,335 @@ export async function registerRoutes(app: Express): Promise<Server> {
         dataType: "live_exchange_data",
       });
     } catch (error: any) {
-      console.error("Trading pairs API error:", error);
+      logger.error("Trading pairs API error:", error);
+      res.status(503).json({
+        error: "EXCHANGE_CONNECTION_FAILED",
+        message: "Failed to fetch live trading pairs from exchange",
+        pairs: [],
+      });
+    }
+  });
+
+  // Health check endpoint for deployment monitoring
+  app.get("/api/health", async (req, res) => {
+    try {
+      // Basic health check
+      const healthStatus: any = {
+        status: "healthy",
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime(),
+        environment: process.env.NODE_ENV || "development",
+        version: "2.0.0",
+      };
+
+      // Test database connectivity
+      try {
+        await storage.getUser(1);import type { Express } from "express";
+import { createServer, type Server } from "http";
+import { WebSocketServer, WebSocket } from "ws";
+import jwt from "jsonwebtoken";
+import bcrypt from "bcryptjs";
+import crypto from "crypto";
+import { body, validationResult } from "express-validator";
+import { storage } from "./storage";
+import { exchangeService } from "./exchange-service";
+import { marketDataService } from "./market-data-service";
+import { emailService } from "./email-service";
+import { aiTradingService } from "./ai-trading-service";
+import downloadRoutes from "./download-routes";
+import downloadPageRoutes from "./download-page";
+import botManagementRoutes from "./bot-management-routes";
+import express from "express";
+import path from "path";
+import {
+  loginSchema,
+  registerSchema,
+  serverRegisterSchema,
+  insertTradingBotSchema,
+  insertApiKeySchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+} from "@shared/schema";
+import { z } from "zod";
+import { logger, securityLogger, tradingLogger } from "./logger";
+import { IAPService } from "./iap-service";
+import { auditLog, readRecentLogs } from "./audit-logger";
+import { getSystemMetrics } from "./monitoring-service";
+import { encrypt as encryptSecure, decrypt as decryptSecure } from "./crypto";
+
+const JWT_SECRET = process.env.JWT_SECRET;
+// For AI microservice calls; defaults to localhost if not provided
+const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:5001";
+
+if (!JWT_SECRET) {
+  throw new Error("JWT_SECRET must be set via environment variables");
+}
+
+// Initialize IAP service
+const iapService = new IAPService();
+
+// Utility functions
+// Encryption helpers now delegate to the strong AES-256-GCM implementation in crypto.ts.
+const encryptData = (text: string): string => encryptSecure(text);
+const decryptData = (encryptedText: string): string => decryptSecure(encryptedText);
+
+// Enhanced authentication middleware with security logging
+const authenticate = async (req: any, res: any, next: any) => {
+  const token = req.headers.authorization?.replace("Bearer ", "");
+  const clientIP = req.ip || req.connection.remoteAddress;
+
+  if (!token) {
+    securityLogger.warn("Authentication failed: No token provided", {
+      ip: clientIP,
+      userAgent: req.get("User-Agent"),
+      path: req.path,
+    });
+    return res.status(401).json({ error: "No token provided" });
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as { userId: number };
+    const user = await storage.getUser(decoded.userId);
+    if (!user) {
+      securityLogger.warn("Authentication failed: User not found", {
+        userId: decoded.userId,
+        ip: clientIP,
+        userAgent: req.get("User-Agent"),
+      });
+      return res.status(401).json({ error: "User not found" });
+    }
+
+    // Log successful authentication
+    securityLogger.info("User authenticated successfully", {
+      userId: user.id,
+      ip: clientIP,
+      userAgent: req.get("User-Agent"),
+    });
+
+    req.user = user;
+    next();
+  } catch (error: any) {
+    securityLogger.error("Token validation failed", {
+      error: error.message,
+      ip: clientIP,
+      userAgent: req.get("User-Agent"),
+      token: token.substring(0, 10) + "...", // Only log first 10 chars for security
+    });
+    return res.status(401).json({ error: "Invalid token" });
+  }
+};
+
+/**
+ * Optional authentication: attach req.user if a valid Bearer token is present.
+ * Otherwise proceed without error. Useful for endpoints that should be safe
+ * for anonymous users but richer when authenticated.
+ */
+const authenticateOptional = async (req: any, _res: any, next: any) => {
+  const auth = req.headers.authorization;
+  if (!auth) return next();
+  try {
+    const token = auth.replace("Bearer ", "");
+    const decoded = jwt.verify(token, JWT_SECRET) as { userId: number };
+    const user = await storage.getUser(decoded.userId);
+    if (user) req.user = user;
+  } catch {
+    // ignore – treat as anonymous
+  }
+  next();
+};
+
+// Subscription verification middleware - MANDATORY for app access
+const requireActiveSubscription = async (req: any, res: any, next: any) => {
+  if (!req.user) {
+    return res.status(401).json({ error: "Authentication required" });
+  }
+
+  try {
+    // Check user's subscription status from database
+    const subscriptionStatus = await storage.getUserSubscriptionStatus(req.user.id);
+
+    if (!subscriptionStatus || !subscriptionStatus.isActive) {
+      securityLogger.warn("Access denied: Inactive subscription", {
+        userId: req.user.id,
+        ip: req.ip,
+        path: req.path,
+        subscriptionStatus,
+      });
+
+      return res.status(402).json({
+        error: "SUBSCRIPTION_REQUIRED",
+        message: "Active subscription required for app access",
+        subscriptionStatus: subscriptionStatus || { isActive: false },
+      });
+    }
+
+    // Check if subscription has expired
+    if (
+      subscriptionStatus.expiryDate &&
+      new Date(subscriptionStatus.expiryDate) < new Date()
+    ) {
+      securityLogger.warn("Access denied: Expired subscription", {
+        userId: req.user.id,
+        expiryDate: subscriptionStatus.expiryDate,
+      });
+
+      return res.status(402).json({
+        error: "SUBSCRIPTION_EXPIRED",
+        message: "Subscription has expired",
+        subscriptionStatus,
+      });
+    }
+
+    next();
+  } catch (error: any) {
+    securityLogger.error("Subscription verification failed", {
+      error: error.message,
+      userId: req.user.id,
+      ip: req.ip,
+    });
+
+    return res.status(500).json({ error: "Subscription verification failed" });
+  }
+};
+
+// Input validation middleware
+const validateInput = (req: any, res: any, next: any) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    logger.warn("Input validation failed", {
+      errors: errors.array(),
+      ip: req.ip,
+      path: req.path,
+    });
+    return res.status(400).json({
+      error: "Invalid input",
+      details: errors.array(),
+    });
+  }
+  next();
+};
+
+// Email verification middleware for trading operations (disabled)
+const requireEmailVerification = async (req: any, res: any, next: any) => {
+  if (!req.user) {
+    return res.status(401).json({ error: "Authentication required" });
+  }
+
+  // Email verification requirement removed - all authenticated users can trade
+  next();
+};
+
+export async function registerRoutes(app: Express): Promise<Server> {
+  const httpServer = createServer(app);
+
+  // Download routes for source code packages
+  app.use("/api", downloadRoutes);
+  app.use("/", downloadPageRoutes);
+
+  // Advanced AI Bot Management routes
+  app.use("/api/ai", botManagementRoutes);
+
+  // Serve static files from root directory for downloads
+  app.use(
+    "/files",
+    express.static(process.cwd(), {
+      dotfiles: "deny",
+      index: false,
+      setHeaders: (res: any, filePath: any) => {
+        res.set(
+          "Content-Disposition",
+          `attachment; filename="${path.basename(filePath)}"`
+        );
+      },
+    })
+  );
+
+  // Simple HTML download page
+  app.get("/downloads", (req, res) => {
+    res.send(`
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ThronixPRO Downloads</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }
+        .download { background: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block; margin: 5px; }
+        .download:hover { background: #0056b3; }
+        .section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <h1>ThronixPRO Downloads</h1>
+    
+    <div class="section">
+        <h3>Complete Platform (313MB)</h3>
+        <a href="/files/thronixpro-everything.zip" class="download">Download Complete Package</a>
+    </div>
+    
+    <div class="section">
+        <h3>Source Code Only (303KB)</h3>
+        <a href="/files/thronixpro-source-code.tar.gz" class="download">Download Source Code</a>
+    </div>
+    
+    <div class="section">
+        <h3>Split Parts (50MB each)</h3>
+        <a href="/files/thronixpro-part-aa" class="download">Part 1</a>
+        <a href="/files/thronixpro-part-ab" class="download">Part 2</a>
+        <a href="/files/thronixpro-part-ac" class="download">Part 3</a>
+        <a href="/files/thronixpro-part-ad" class="download">Part 4</a>
+        <a href="/files/thronixpro-part-ae" class="download">Part 5</a>
+        <a href="/files/thronixpro-part-af" class="download">Part 6</a>
+        <a href="/files/thronixpro-part-ag" class="download">Part 7</a>
+    </div>
+    
+    <p><strong>Instructions:</strong> Click any download button. If it doesn't work, right-click and select "Save link as..."</p>
+</body>
+</html>
+    `);
+  });
+
+  // Exchange trading pairs endpoint (Public - no authentication required)
+  app.get("/api/exchange/:exchange/pairs", async (req: any, res) => {
+    try {
+      const exchange = req.params.exchange;
+      logger.info(`Fetching trading pairs for ${exchange}...`);
+      const pairs = await exchangeService.getAllTradingPairs(exchange);
+      logger.info(`Found ${pairs.length} trading pairs for ${exchange}`);
+      res.json({ pairs });
+    } catch (error: any) {
+      logger.error(
+        `Error fetching trading pairs for ${req.params.exchange}:`,
+        error
+      );
+      res.status(500).json({ error: "Failed to fetch trading pairs" });
+    }
+  });
+
+  // Unified trading pairs endpoint for all components
+  app.get("/api/trading-pairs", async (req: any, res) => {
+    try {
+      logger.info("Fetching live trading pairs from KuCoin...");
+      const pairs = await exchangeService.getAllTradingPairs("kucoin");
+      logger.info(`Found ${pairs.length} live trading pairs`);
+
+      if (!pairs || pairs.length === 0) {
+        return res.status(503).json({
+          error: "LIVE_DATA_REQUIRED",
+          message: "No live exchange data available. Real exchange connection required.",
+          pairs: [],
+        });
+      }
+
+      res.json({
+        pairs: pairs,
+        total: pairs.length,
+        exchange: "kucoin",
+        timestamp: Date.now(),
+        dataType: "live_exchange_data",
+      });
+    } catch (error: any) {
+      logger.error("Trading pairs API error:", error);
       res.status(503).json({
         error: "EXCHANGE_CONNECTION_FAILED",
         message: "Failed to fetch live trading pairs from exchange",
@@ -351,7 +679,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const connections = new Map<number, WebSocket>();
 
   wss.on("connection", (ws: WebSocket, req) => {
-    console.log("WebSocket client connected");
+    logger.info("WebSocket client connected");
 
     ws.on("message", async (message) => {
       try {
@@ -373,7 +701,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         }
       } catch (error: any) {
-        console.error("WebSocket message error:", error);
+        logger.error("WebSocket message error:", error);
       }
     });
 
@@ -387,7 +715,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           break;
         }
       }
-      console.log("WebSocket client disconnected");
+      logger.info("WebSocket client disconnected");
     });
   });
 
@@ -404,7 +732,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // FIXED: Register now returns a JWT token so the client is authenticated immediately
   app.post("/api/auth/register", async (req, res) => {
     try {
-      console.log("Registration request body:", JSON.stringify(req.body, null, 2));
+      logger.info("Registration request body:", JSON.stringify(req.body, null, 2));
       const data = serverRegisterSchema.parse(req.body);
 
       const existingUser = await storage.getUserByEmail(data.email);
@@ -434,14 +762,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error: any) {
       if (error instanceof z.ZodError) {
-        console.log("Validation errors:", error.errors);
+        logger.info("Validation errors:", error.errors);
         return res.status(400).json({
           error: error.errors[0].message,
           field: error.errors[0].path?.join("."),
           allErrors: error.errors,
         });
       }
-      console.error("Registration error:", error);
+      logger.error("Registration error:", error);
       res.status(500).json({ error: "Registration failed" });
     }
   });
@@ -477,7 +805,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         success: true,
       });
     } catch (error: any) {
-      console.error("Email verification error:", error);
+      logger.error("Email verification error:", error);
       res.status(500).json({ error: "Email verification failed" });
     }
   });
@@ -519,7 +847,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
 
       if (!emailSent) {
-        console.log(
+        logger.info(
           `New email verification link: ${baseUrl}/api/auth/verify-email?token=${verificationToken}`
         );
       }
@@ -531,7 +859,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...(emailSent ? {} : { verificationToken: verificationToken }),
       });
     } catch (error: any) {
-      console.error("Resend verification error:", error);
+      logger.error("Resend verification error:", error);
       res.status(500).json({ error: "Failed to resend verification email" });
     }
   });
@@ -615,7 +943,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       } else {
         // Email service unavailable
-        console.log(
+        logger.info(
           `Password reset failed for ${user.email} - email service unavailable`
         );
         res.status(500).json({
@@ -627,7 +955,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors[0].message });
       }
-      console.error("Forgot password error:", error);
+      logger.error("Forgot password error:", error);
       res.status(500).json({ error: "Password reset request failed" });
     }
   });
@@ -663,7 +991,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         success: true,
       });
     } catch (error: any) {
-      console.error("Manual reset error:", error);
+      logger.error("Manual reset error:", error);
       res.status(500).json({ error: "Password reset failed" });
     }
   });
@@ -700,7 +1028,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors[0].message });
       }
-      console.error("Reset password error:", error);
+      logger.error("Reset password error:", error);
       res.status(500).json({ error: "Password reset failed" });
     }
   });
@@ -718,8 +1046,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/trading-bots", authenticate, async (req: any, res) => {
     try {
-      console.log("Bot creation request received:", req.body);
-      console.log("User from token:", req.user);
+      logger.info("Bot creation request received:", req.body);
+      logger.info("User from token:", req.user);
 
       // Add default status if not provided
       const requestData = {
@@ -728,7 +1056,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
 
       const data = insertTradingBotSchema.parse(requestData);
-      console.log("Parsed data:", data);
+      logger.info("Parsed data:", data);
 
       const botWithUserId = {
         ...data,
@@ -736,12 +1064,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
 
       const bot = await storage.createTradingBot(botWithUserId);
-      console.log("Bot created successfully:", bot);
+      logger.info("Bot created successfully:", bot);
       res.json(bot);
     } catch (error: any) {
-      console.log("Bot creation error:", error);
+      logger.info("Bot creation error:", error);
       if (error instanceof z.ZodError) {
-        console.log("Validation errors:", error.errors);
+        logger.info("Validation errors:", error.errors);
         return res
           .status(400)
           .json({ error: error.errors[0].message, field: error.errors[0].path });
@@ -794,7 +1122,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Trading bot not found" });
       }
 
-      console.log(`AI Master Bot ${botId}: Starting trading for user ${userId}`);
+      logger.info(`AI Master Bot ${botId}: Starting trading for user ${userId}`);
 
       // Start the AI trading strategy
       await aiTradingService.executeTradingStrategy(userId, botId);
@@ -808,7 +1136,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         bot: updatedBot,
       });
     } catch (error: any) {
-      console.error("Error starting AI Master Bot:", error);
+      logger.error("Error starting AI Master Bot:", error);
       res.status(500).json({ error: "Failed to start AI Master Bot" });
     }
   });
@@ -824,7 +1152,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Trading bot not found" });
       }
 
-      console.log(
+      logger.info(
         `AI Master Bot ${botId}: Stopping trading and closing positions for user ${userId}`
       );
 
@@ -840,7 +1168,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         bot: updatedBot,
       });
     } catch (error: any) {
-      console.error("Error stopping AI Master Bot:", error);
+      logger.error("Error stopping AI Master Bot:", error);
       res.status(500).json({ error: "Failed to stop AI Master Bot" });
     }
   });
@@ -928,7 +1256,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               }
             }
           } catch (error: any) {
-            console.error(
+            logger.error(
               `Failed to fetch balance from ${apiKey.exchange}:`,
               error.message
             );
@@ -955,7 +1283,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         lastUpdated: new Date().toISOString(),
       });
     } catch (error: any) {
-      console.error("Balance fetch error:", error);
+      logger.error("Balance fetch error:", error);
       res.status(500).json({ error: "Failed to fetch real exchange balances" });
     }
   });
@@ -996,7 +1324,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const tickers = await exchangeService.getMarketTickers(exchange);
       res.json(tickers);
     } catch (error: any) {
-      console.error("Market data error:", error);
+      logger.error("Market data error:", error);
       res
         .status(500)
         .json({ error: `Failed to fetch market data from ${req.params.exchange}` });
@@ -1009,7 +1337,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const tickers = await exchangeService.getMarketTickers(exchange);
       res.json(tickers);
     } catch (error: any) {
-      console.error("Error fetching market tickers:", error);
+      logger.error("Error fetching market tickers:", error);
       res.status(500).json({
         error: "MARKET_DATA_ERROR",
         message: "Failed to fetch market tickers",
@@ -1025,7 +1353,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const timeframe = (req.query.timeframe as string) || "1h";
       const exchange = (req.query.exchange as string) || "kucoin";
 
-      console.log(`Fetching chart data for ${symbol} (${timeframe}) from ${exchange}`);
+      logger.info(`Fetching chart data for ${symbol} (${timeframe}) from ${exchange}`);
 
       // Get current ticker data for the symbol
       const tickers = await exchangeService.getMarketTickers(exchange);
@@ -1065,7 +1393,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         timestamp: Date.now(),
       });
     } catch (error: any) {
-      console.error(`Error fetching chart data for ${req.params.symbol}:`, error);
+      logger.error(`Error fetching chart data for ${req.params.symbol}:`, error);
       res.status(500).json({
         error: "CHART_DATA_ERROR",
         message: "Failed to fetch chart data",
@@ -1139,7 +1467,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         timestamp: Date.now(),
       });
     } catch (error: any) {
-      console.error("Market sentiment error:", error);
+      logger.error("Market sentiment error:", error);
       res.status(500).json({ error: "Failed to calculate market sentiment from live data" });
     }
   });
@@ -1222,7 +1550,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(prediction);
     } catch (error: any) {
-      console.error("Price prediction error:", error);
+      logger.error("Price prediction error:", error);
       res
         .status(500)
         .json({ error: "Failed to generate price prediction from live market analysis" });
@@ -1262,7 +1590,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         timestamp: Date.now(),
       });
     } catch (error: any) {
-      console.error("Trading stats error:", error);
+      logger.error("Trading stats error:", error);
       res.json({
         totalTrades: 0,
         winRate: 0,
@@ -1317,7 +1645,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }
         } catch (exchangeError) {
-          console.error(`Error fetching price from ${exchangeName}:`, exchangeError);
+          logger.error(`Error fetching price from ${exchangeName}:`, exchangeError);
           continue;
         }
       }
@@ -1331,7 +1659,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(symbolData);
     } catch (error: any) {
-      console.error("Price fetch error:", error);
+      logger.error("Price fetch error:", error);
       res.status(500).json({ error: "Failed to fetch symbol price" });
     }
   });
@@ -1344,21 +1672,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     // Try each exchange until we get authentic live data
     for (const exchangeName of exchanges) {
       try {
-        console.log(`Market overview: fetching live data from ${exchangeName}...`);
+        logger.info(`Market overview: fetching live data from ${exchangeName}...`);
         tickers = await exchangeService.getMarketTickers(exchangeName);
         if (tickers && tickers.length > 0) {
           successfulExchange = exchangeName;
-          console.log(`Market overview: successfully fetched from ${exchangeName}`);
+          logger.info(`Market overview: successfully fetched from ${exchangeName}`);
           break;
         }
       } catch (exchangeError) {
-        console.log(`Market overview: ${exchangeName} failed, trying next exchange...`);
+        logger.info(`Market overview: ${exchangeName} failed, trying next exchange...`);
         continue;
       }
     }
 
     if (tickers.length === 0) {
-      console.error("Market overview: All exchanges failed to provide live data");
+      logger.error("Market overview: All exchanges failed to provide live data");
       return res.status(503).json({
         error: "LIVE_DATA_REQUIRED",
         message:
@@ -1467,7 +1795,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                       );
                       usdValue = balance.total * btcTicker.last * btcUsdTicker.last;
                     } catch (e) {
-                      console.log(
+                      logger.info(
                         `Cannot price ${balance.symbol} on ${apiKey.exchange}, excluding from total`
                       );
                       continue;
@@ -1493,12 +1821,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
             if (exchangeTotal > 0) {
               exchangeBalances[apiKey.exchange] = exchangeTotal;
-              console.log(
+              logger.info(
                 `Live balance from ${apiKey.exchange}: $${exchangeTotal.toFixed(2)}`
               );
             }
           } catch (error: any) {
-            console.error(
+            logger.error(
               `Failed to fetch live balance from ${apiKey.exchange}:`,
               error.message
             );
@@ -1542,7 +1870,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         isLiveData: apiKeys.length > 0,
       };
 
-      console.log(
+      logger.info(
         `Portfolio: $${totalUSDValue.toFixed(2)} total, $${dayPnl.toFixed(
           2
         )} P&L, ${apiKeys.length} exchanges connected`
@@ -1550,7 +1878,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(response);
     } catch (error: any) {
-      console.error("Portfolio summary error:", error);
+      logger.error("Portfolio summary error:", error);
       res.status(500).json({ error: "Failed to fetch live portfolio data" });
     }
   });
@@ -1608,7 +1936,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         createdAt: newApiKey.createdAt,
       });
     } catch (error: any) {
-      console.error("API key creation error:", error);
+      logger.error("API key creation error:", error);
       res.status(500).json({ error: "Failed to create API key" });
     }
   });
@@ -1786,7 +2114,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         throw error;
       }
     } catch (error: any) {
-      console.error("Exchange connection error:", error);
+      logger.error("Exchange connection error:", error);
       res.status(400).json({
         error: error.message || "Failed to connect to exchange",
       });
@@ -1816,13 +2144,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         await exchangeService.initializeExchange(apiKey);
       } catch (initError) {
-        console.log(`Exchange already initialized or initialization failed:`, initError);
+        logger.info(`Exchange already initialized or initialization failed:`, initError);
       }
 
       const balances = await exchangeService.getBalance(userId, exchange as string);
       res.json(balances);
     } catch (error: any) {
-      console.error("Balance fetch error:", error);
+      logger.error("Balance fetch error:", error);
       res.status(500).json({ error: "Failed to fetch balance", details: error.message });
     }
   });
@@ -1881,7 +2209,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json(order);
     } catch (error: any) {
-      console.error("Order placement error:", error);
+      logger.error("Order placement error:", error);
       res.status(400).json({
         error: error.message || "Failed to place order",
       });
@@ -1919,7 +2247,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({ message: "Order canceled successfully" });
     } catch (error: any) {
-      console.error("Order cancellation error:", error);
+      logger.error("Order cancellation error:", error);
       res.status(400).json({
         error: error.message || "Failed to cancel order",
       });
@@ -1955,7 +2283,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           price: price ? parseFloat(price) : undefined,
         });
 
-        console.log(`Real order executed on ${activeKey.exchange}:`, orderResult);
+        logger.info(`Real order executed on ${activeKey.exchange}:`, orderResult);
 
         // Log the real order in database
         await storage.createOrderAlert({
@@ -1983,7 +2311,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
     } catch (error: any) {
-      console.error("Order placement error:", error);
+      logger.error("Order placement error:", error);
       res.status(500).json({ error: "Failed to place order" });
     }
   });
@@ -2089,7 +2417,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }, 800 + Math.random() * 1200);
     } catch (error: any) {
-      console.error("AI chat error:", error);
+      logger.error("AI chat error:", error);
       res.status(500).json({ error: "AI chat service temporarily unavailable" });
     }
   });
@@ -2234,7 +2562,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         timestamp: Date.now(),
       });
     } catch (error: any) {
-      console.error("AI strategy suggestion error:", error);
+      logger.error("AI strategy suggestion error:", error);
       res.status(500).json({ error: "AI strategy service temporarily unavailable" });
     }
   });
@@ -2267,7 +2595,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           timestamp: Date.now(),
         });
       } catch (exchangeError: any) {
-        console.error("Order book fetch error:", exchangeError);
+        logger.error("Order book fetch error:", exchangeError);
         return res.status(503).json({
           error: "EXCHANGE_CONNECTION_FAILED",
           message:
@@ -2276,7 +2604,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
     } catch (error: any) {
-      console.error("Order book error:", error);
+      logger.error("Order book error:", error);
       res.status(500).json({ error: "Failed to fetch order book" });
     }
   });
@@ -2315,14 +2643,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           timestamp: Date.now(),
         });
       } catch (error: any) {
-        console.error("Trade fetch error:", error);
+        logger.error("Trade fetch error:", error);
         return res.status(503).json({
           error: "EXCHANGE_CONNECTION_FAILED",
           message: error.message || "Unable to fetch recent trades from exchange",
         });
       }
     } catch (error: any) {
-      console.error("Trades error:", error);
+      logger.error("Trades error:", error);
       return res.status(500).json({ error: "Failed to fetch trades" });
     }
   });
@@ -2418,7 +2746,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         totalExposure,
       });
     } catch (error: any) {
-      console.error("Portfolio risk error:", error);
+      logger.error("Portfolio risk error:", error);
       return res.status(500).json({ error: "Failed to calculate risk metrics" });
     }
   });
@@ -2428,7 +2756,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       res.json([]);
     } catch (error: any) {
-      console.error("Trade history error:", error);
+      logger.error("Trade history error:", error);
       res.status(500).json({ error: "Failed to fetch trade history" });
     }
   });
@@ -2440,7 +2768,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const orders = await storage.getAdvancedOrdersByUserId(userId);
       res.json(orders);
     } catch (error: any) {
-      console.error("Advanced orders error:", error);
+      logger.error("Advanced orders error:", error);
       res.status(500).json({ error: "Failed to fetch advanced orders" });
     }
   });
@@ -2509,13 +2837,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
           }
 
-          console.log(
+          logger.info(
             `Advanced Order: Real balance verified for ${symbol} on ${exchange} - Available: ${relevantBalance} ${
               quoteCurrency || baseCurrency
             }`
           );
         } catch (balanceError: any) {
-          console.error("Advanced order balance verification failed:", balanceError);
+          logger.error("Advanced order balance verification failed:", balanceError);
           return res.status(400).json({
             error: "EXCHANGE_VERIFICATION_FAILED",
             message: `Failed to verify balance on ${exchange}. Ensure your API keys are valid and have trading permissions.`,
@@ -2544,12 +2872,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         const newOrder = await storage.createAdvancedOrder(orderData);
 
-        console.log(
+        logger.info(
           `Advanced Order Created: ${type} order for ${symbol} on ${exchange} with REAL funds verification`
         );
         res.json(newOrder);
       } catch (error: any) {
-        console.error("Create advanced order error:", error);
+        logger.error("Create advanced order error:", error);
         res.status(500).json({ error: "Failed to create advanced order" });
       }
     }
@@ -2577,7 +2905,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         orderId: parseInt(orderId),
       });
     } catch (error: any) {
-      console.error("Cancel advanced order error:", error);
+      logger.error("Cancel advanced order error:", error);
       res.status(500).json({ error: "Failed to cancel advanced order" });
     }
   });
@@ -2592,7 +2920,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const recommendations = await aiTradingService.getStrategyRecommendations(symbol);
         res.json(recommendations);
       } catch (error: any) {
-        console.error("Strategy recommendations error:", error);
+        logger.error("Strategy recommendations error:", error);
         res.status(500).json({ error: "Failed to get strategy recommendations" });
       }
     }
@@ -2615,7 +2943,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         );
         res.json(signal);
       } catch (error: any) {
-        console.error("AI signal generation error:", error);
+        logger.error("AI signal generation error:", error);
         res.status(500).json({ error: "Failed to generate AI trading signal" });
       }
     }
@@ -2633,7 +2961,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await aiTradingService.executeTradingStrategy(userId, parseInt(botId));
         res.json({ message: "AI strategy executed successfully" });
       } catch (error: any) {
-        console.error("AI strategy execution error:", error);
+        logger.error("AI strategy execution error:", error);
         res.status(500).json({ error: "Failed to execute AI strategy" });
       }
     }
@@ -2648,7 +2976,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const analysis = await aiTradingService.analyzeMarket(symbol, exchange);
         res.json(analysis);
       } catch (error: any) {
-        console.error("AI market analysis error:", error);
+        logger.error("AI market analysis error:", error);
         res.status(500).json({ error: "Failed to perform AI market analysis" });
       }
     }
@@ -2668,7 +2996,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const insights = aiTradingService.getLearningInsights(parseInt(botId));
       res.json(insights);
     } catch (error: any) {
-      console.error("Learning insights error:", error);
+      logger.error("Learning insights error:", error);
       res.status(500).json({ error: "Failed to get learning insights" });
     }
   });
@@ -2691,7 +3019,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await aiTradingService.recordTradingOutcome(botId, signal, actualPnl, marketConditions);
         res.json({ message: "Learning outcome recorded successfully" });
       } catch (error: any) {
-        console.error("Record outcome error:", error);
+        logger.error("Record outcome error:", error);
         res.status(500).json({ error: "Failed to record trading outcome" });
       }
     }
@@ -2774,7 +3102,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }
 
-          console.log(
+          logger.info(
             `Manual Trade: Real balance verified for ${symbol} on ${exchange} - Executing ${side} order`
           );
 
@@ -2792,7 +3120,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             orderParams
           );
 
-          console.log(
+          logger.info(
             `Manual Trade Executed: ${side} ${quantity} ${symbol} on ${exchange} with REAL funds`
           );
 
@@ -2802,14 +3130,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
             order: executedOrder,
           });
         } catch (balanceError: any) {
-          console.error("Trading order balance verification failed:", balanceError);
+          logger.error("Trading order balance verification failed:", balanceError);
           return res.status(400).json({
             error: "EXCHANGE_VERIFICATION_FAILED",
             message: `Failed to verify balance on ${exchange}. Ensure your API keys are valid and have trading permissions.`,
           });
         }
       } catch (error: any) {
-        console.error("Trading order error:", error);
+        logger.error("Trading order error:", error);
         res.status(500).json({ error: "Failed to execute order" });
       }
     }
@@ -2820,18 +3148,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       res.json([]);
     } catch (error: any) {
-      console.error("Portfolio analytics error:", error);
+      logger.error("Portfolio analytics error:", error);
       res.status(500).json({ error: "Failed to fetch portfolio analytics" });
     }
   });
 
   // Health check endpoint
-  app.get("/api/health", (req, res) => {
+  /* DUPLICATE /api/health REMOVED
+app.get("/api/health", (req, res) => {
     res.json({
       status: "healthy",
       timestamp: new Date().toISOString(),
       version: "1.0.0",
     });
+*/
   });
 
   // Temporary manual verification endpoint (for development/when email fails)
@@ -2868,7 +3198,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         },
       });
     } catch (error: any) {
-      console.error("Manual verification error:", error);
+      logger.error("Manual verification error:", error);
       res.status(500).json({ error: "Failed to verify email" });
     }
   });
@@ -2952,7 +3282,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       return res.status(isActive ? 201 : 200).json({ active: isActive, expiryDate });
     } catch (iapError) {
-      console.error("IAP verification error:", iapError);
+      logger.error("IAP verification error:", iapError);
       return res.status(502).json({ error: "IAP verification unavailable" });
     }
   });
@@ -2971,7 +3301,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         message: "Your support request has been received. Our team will reach out shortly.",
       });
     } catch (error: any) {
-      console.error("Support ticket error:", error);
+      logger.error("Support ticket error:", error);
       res.status(500).json({ error: "Failed to submit support ticket" });
     }
   });
@@ -2984,7 +3314,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const metrics = getSystemMetrics();
       res.json(metrics);
     } catch (error: any) {
-      console.error("Metrics fetch error:", error);
+      logger.error("Metrics fetch error:", error);
       res.status(500).json({ error: "Failed to fetch system metrics" });
     }
   });
@@ -3008,7 +3338,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         message: "KYC submission received. Verification will be processed shortly.",
       });
     } catch (error: any) {
-      console.error("KYC submission error:", error);
+      logger.error("KYC submission error:", error);
       res.status(500).json({ error: "Failed to submit KYC" });
     }
   });
@@ -3075,3 +3405,7 @@ function generateChartData(currentPrice: number, change24h: number, timeframe: s
   return data;
 }
 
+
+
+// Global 404 handler
+app.use((req, res) => { res.status(404).json({ error: 'Route not found' }); });
