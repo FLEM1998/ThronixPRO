@@ -312,17 +312,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Health check endpoint for deployment monitoring
-  app.get("/api/health", async (req, res) => {
+// Health check endpoint for deployment monitoring
+app.get("/api/health", async (req, res) => {
+  try {
+    // Basic health check
+    const healthStatus: any = {
+      status: "healthy",
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      environment: process.env.NODE_ENV || "development",
+      version: "2.0.0",
+    };
+
+    // Test database connectivity
     try {
-      // Basic health check
-      const healthStatus: any = {
-        status: "healthy",
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime(),
-        environment: process.env.NODE_ENV || "development",
-        version: "2.0.0",
-      };
+      await storage.getUser(1); // Simple db query to test connection
+      healthStatus.database = "connected";
+    } catch (error) {
+      healthStatus.database = "disconnected";
+      healthStatus.status = "degraded";
+    }
+
+    const statusCode = healthStatus.status === "healthy" ? 200 : 503;
+    res.status(statusCode).json(healthStatus);
+  } catch (error) {
+    res.status(503).json({
+      status: "unhealthy",
+      timestamp: new Date().toISOString(),
+      error: "Health check failed",
+    });
+  }
+});
 
       // Test database connectivity
       try {
