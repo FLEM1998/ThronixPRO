@@ -3182,4 +3182,3 @@ function generateChartData(currentPrice: number, change24h: number, timeframe: s
 
   return data;
 }
-
