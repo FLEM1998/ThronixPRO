@@ -1,7 +1,7 @@
-import type { Express, Request, Response, NextFunction } from "express";
+import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
-import jwt, { JwtPayload } from "jsonwebtoken";
+import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { body, validationResult } from "express-validator";
@@ -31,53 +31,8 @@ import { auditLog, readRecentLogs } from "./audit-logger";
 import { getSystemMetrics } from "./monitoring-service";
 import { encrypt as encryptSecure, decrypt as decryptSecure } from "./crypto";
 
-/** ---- Public route guard (keeps register/login/health open) ---- */
-function isPublic(req: Request): boolean {
-  if (req.method === "OPTIONS") return true;
-
-  const url =
-    (req.originalUrl ||
-      (((req as any).baseUrl || "") + (req as any).path) ||
-      (req as any).path ||
-      "") as string;
-
-  const cleanUrl = url.split("?")[0];
-
-  // Health checks
-  if (cleanUrl === "/healthz" || cleanUrl === "/api/health") return true;
-
-  // Auth flows (register/login/forgot/reset) — support legacy paths too
-  if (
-    cleanUrl.startsWith("/api/auth/") ||
-    cleanUrl.startsWith("/auth/") ||
-    cleanUrl === "/api/register" ||
-    cleanUrl === "/api/login" ||
-    cleanUrl === "/api/forgot" ||
-    cleanUrl === "/api/reset"
-  ) {
-    return true;
-  }
-
-  // Static/download pages (GET only)
-  if (
-    req.method === "GET" &&
-    (cleanUrl.startsWith("/download") ||
-      cleanUrl.startsWith("/public") ||
-      cleanUrl.startsWith("/assets") ||
-      cleanUrl.startsWith("/static"))
-  ) {
-    return true;
-  }
-
-  // Anonymous status/version endpoints
-  if (cleanUrl === "/api/subscription/status" || cleanUrl === "/api/version") {
-    return true;
-  }
-
-  return false;
-}
-
 const JWT_SECRET = process.env.JWT_SECRET;
+// For AI microservice calls; defaults to localhost if not provided
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:5001";
 
 if (!JWT_SECRET) {
@@ -87,231 +42,84 @@ if (!JWT_SECRET) {
 // Initialize IAP service
 const iapService = new IAPService();
 
-// Encryption helpers (AES-256-GCM in crypto.ts)
+// Utility functions
+// Encryption helpers now delegate to the strong AES-256-GCM implementation in crypto.ts.
 const encryptData = (text: string): string => encryptSecure(text);
 const decryptData = (encryptedText: string): string => decryptSecure(encryptedText);
 
-/** ---- Auth middleware (uses isPublic) ---- */
-type AuthedRequest = Request & { user?: any };
-
-function getClientIP(req: Request): string {
-  const xff = (req.headers["x-forwarded-for"] || "") as string;
-  const firstHop = xff.split(",")[0]?.trim();
-  return firstHop || (req.ip || (req as any).connection?.remoteAddress || "").toString();
-}
-
-function getBearerToken(req: Request): string | undefined {
-  // 1) Authorization: Bearer <token>
-  const authHeader = req.headers.authorization || "";
-  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
-  if (bearerMatch) return bearerMatch[1];
-
-  // 2) Raw token in Authorization
-  if (authHeader && !/^Bearer/i.test(authHeader)) return authHeader;
-
-  // 3) Cookie fallback
-  const cookie = req.headers.cookie || "";
-  const tokenFromCookie = cookie
-    .split(";")
-    .map((c) => c.trim())
-    .find((c) => c.startsWith("access_token="))
-    ?.split("=")[1];
-
-  return tokenFromCookie;
-}
-
-export async function authenticate(
-  req: AuthedRequest,
-  res: Response,
-  next: NextFunction
-) {
-  // Skip CORS preflight & public routes
-  if (req.method === "OPTIONS" || isPublic(req)) return next();
-
-  const token = getBearerToken(req);
-  const clientIP = getClientIP(req);
-  const url = (req as any).originalUrl || req.path;
-  const userAgent = req.get("User-Agent");
+// Enhanced authentication middleware with security logging
+const authenticate = async (req: any, res: any, next: any) => {
+  const token = req.headers.authorization?.replace("Bearer ", "");
+  const clientIP = req.ip || req.connection.remoteAddress;
 
   if (!token) {
     securityLogger.warn("Authentication failed: No token provided", {
       ip: clientIP,
-      userAgent,
-      path: url,
-      method: req.method,
+      userAgent: req.get("User-Agent"),
+      path: req.path,
     });
     return res.status(401).json({ error: "No token provided" });
   }
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET, {
-      issuer: process.env.JWT_ISSUER,
-      audience: process.env.JWT_AUDIENCE,
-      clockTolerance: Number(process.env.JWT_MAX_CLOCK_SKEW_SEC || 60),
-    }) as JwtPayload;
-
-    req.user = {
-      ...(decoded as any),
-      userId: (decoded as any).userId ?? (decoded as any).id,
-      email: (decoded as any).email,
-      roles: (decoded as any).roles ?? [],
-    };
-
-    return next();
-  } catch (err: any) {
-    securityLogger.warn("Authentication failed: Invalid token", {
-      ip: clientIP,
-      userAgent,
-      path: url,
-      method: req.method,
-      reason: err?.name || "JWTError",
-    });
-    return res.status(401).json({ error: "Invalid token" });
-  }
-}
-
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET, {
-      // These add defense-in-depth if you set them
-      issuer: JWT_ISSUER,
-      audience: JWT_AUDIENCE,
-      // Accept small clock skew to reduce spurious failures on Render
-      clockTolerance: MAX_CLOCK_SKEW_SEC,
-      algorithms: ["HS256", "HS384", "HS512"], // restrict algs
-    }) as JwtPayload & { id?: number; userId?: number; email?: string };
-
-    const userId = Number(decoded.userId ?? decoded.id);
-    if (!userId || Number.isNaN(userId)) {
-      securityLogger.warn("Authentication failed: Invalid token payload", {
-        ip: clientIP,
-        userAgent,
-        path: url,
-      });
-      return res.status(401).json({ error: "Invalid token" });
-    }
-
-    const user = await storage.getUser(userId);
+    const decoded = jwt.verify(token, JWT_SECRET) as { userId: number };
+    const user = await storage.getUser(decoded.userId);
     if (!user) {
       securityLogger.warn("Authentication failed: User not found", {
-        userId,
+        userId: decoded.userId,
         ip: clientIP,
-        userAgent,
-        path: url,
+        userAgent: req.get("User-Agent"),
       });
       return res.status(401).json({ error: "User not found" });
     }
 
-    // Optional: additional checks (disable/ban flags, email verified, etc.)
-    if (user.disabled || user.deletedAt) {
-      securityLogger.warn("Authentication failed: User disabled", {
-        userId: user.id,
-        ip: clientIP,
-        userAgent,
-        path: url,
-      });
-      return res.status(403).json({ error: "Account disabled" });
-    }
-
-    securityLogger.info("User authenticated", {
+    // Log successful authentication
+    securityLogger.info("User authenticated successfully", {
       userId: user.id,
       ip: clientIP,
-      userAgent,
-      path: url,
-      // Never log full token; avoid PII
+      userAgent: req.get("User-Agent"),
     });
 
     req.user = user;
-    return next();
+    next();
   } catch (error: any) {
     securityLogger.error("Token validation failed", {
-      error: error?.message,
+      error: error.message,
       ip: clientIP,
-      userAgent,
-      path: url,
-      tokenPreview: typeof token === "string" ? token.slice(0, 10) + "…" : "(n/a)",
+      userAgent: req.get("User-Agent"),
+      token: token.substring(0, 10) + "...", // Only log first 10 chars for security
     });
-    return res.status(401).json({ error: "Invalid or expired token" });
+    return res.status(401).json({ error: "Invalid token" });
   }
-}
-
-/** Example minimal public-route helper (customize to your app) */
-export function isPublic(req: Request): boolean {
-  const url = (req as any).originalUrl || req.path || "";
-  // Health checks & assets
-  if (req.method === "GET" && (
-      url.startsWith("/healthz") ||
-      url.startsWith("/public/") ||
-      url.startsWith("/assets/") ||
-      url === "/" ||
-      url.startsWith("/docs")
-    )) return true;
-
-  // Auth endpoints
-  if (url.startsWith("/api/auth/login") ||
-      url.startsWith("/api/auth/register") ||
-      url.startsWith("/api/auth/forgot-password") ||
-      url.startsWith("/api/auth/refresh")
-  ) return true;
-
-  return false;
-}
-
+};
 
 /**
- * Optional auth: attaches req.user if a valid Bearer token exists; otherwise continues.
- * Useful for endpoints that are public but can return richer data when logged in.
+ * Optional authentication: attach req.user if a valid Bearer token is present.
+ * Otherwise proceed without error. Useful for endpoints that should be safe
+ * for anonymous users but richer when authenticated.
  */
-const authenticateOptional = async (
-  req: Request & { user?: any },
-  _res: any,
-  next: any
-) => {
-  const authHeader = req.headers.authorization || "";
-  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
-  const token = bearerMatch ? bearerMatch[1] : undefined;
-
-  if (!token) return next();
-
+const authenticateOptional = async (req: any, _res: any, next: any) => {
+  const auth = req.headers.authorization;
+  if (!auth) return next();
   try {
-    const decoded = jwt.verify(token, JWT_SECRET as string) as {
-      id?: number;
-      userId?: number;
-      email?: string;
-    };
-    const userId = decoded.userId ?? decoded.id;
-    if (userId) {
-      const user = await storage.getUser(Number(userId));
-      if (user) (req as any).user = user;
-    }
+    const token = auth.replace("Bearer ", "");
+    const decoded = jwt.verify(token, JWT_SECRET) as { userId: number };
+    const user = await storage.getUser(decoded.userId);
+    if (user) req.user = user;
   } catch {
-    // ignore and proceed as anonymous
+    // ignore – treat as anonymous
   }
   next();
 };
 
-// Enforce active subscription (never blocks public routes)
-const requireActiveSubscription = async (
-  req: Request & { user?: any },
-  res: any,
-  next: any
-) => {
-  
-// Bypass subscription checks while testing or when explicitly allowed
-if (
-  process.env.SUBSCRIPTION_BYPASS === "true" ||
-  process.env.ALLOW_MANUAL_LOGIN === "true" ||
-  (process.env.NODE_ENV !== "production" && process.env.FORCE_SUBSCRIPTION !== "true")
-) {
-  return next();
-}
-
-if (isPublic(req)) return next(); // safety if middleware is mounted broadly
-
+// Subscription verification middleware - MANDATORY for app access
+const requireActiveSubscription = async (req: any, res: any, next: any) => {
   if (!req.user) {
     return res.status(401).json({ error: "Authentication required" });
   }
 
   try {
+    // Check user's subscription status from database
     const subscriptionStatus = await storage.getUserSubscriptionStatus(req.user.id);
 
     if (!subscriptionStatus || !subscriptionStatus.isActive) {
@@ -321,6 +129,7 @@ if (isPublic(req)) return next(); // safety if middleware is mounted broadly
         path: req.path,
         subscriptionStatus,
       });
+
       return res.status(402).json({
         error: "SUBSCRIPTION_REQUIRED",
         message: "Active subscription required for app access",
@@ -328,11 +137,16 @@ if (isPublic(req)) return next(); // safety if middleware is mounted broadly
       });
     }
 
-    if (subscriptionStatus.expiryDate && new Date(subscriptionStatus.expiryDate) < new Date()) {
+    // Check if subscription has expired
+    if (
+      subscriptionStatus.expiryDate &&
+      new Date(subscriptionStatus.expiryDate) < new Date()
+    ) {
       securityLogger.warn("Access denied: Expired subscription", {
         userId: req.user.id,
         expiryDate: subscriptionStatus.expiryDate,
       });
+
       return res.status(402).json({
         error: "SUBSCRIPTION_EXPIRED",
         message: "Subscription has expired",
@@ -343,10 +157,11 @@ if (isPublic(req)) return next(); // safety if middleware is mounted broadly
     next();
   } catch (error: any) {
     securityLogger.error("Subscription verification failed", {
-      error: error?.message,
-      userId: req.user?.id,
+      error: error.message,
+      userId: req.user.id,
       ip: req.ip,
     });
+
     return res.status(500).json({ error: "Subscription verification failed" });
   }
 };
@@ -2112,6 +1927,66 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // (Duplicate /api/exchange/order route exists below in your original file; keeping as-is)
+  app.post("/api/exchange/order", authenticate, async (req: any, res) => {
+    try {
+      const userId = req.user.id;
+      const { symbol, side, type, quantity, price } = req.body;
+
+      if (!symbol || !side || !type || !quantity) {
+        return res
+          .status(400)
+          .json({ error: "Symbol, side, type, and quantity are required" });
+      }
+
+      const apiKeys = await storage.getApiKeysByUserId(userId);
+      const activeKey = apiKeys.find((key) => key.isActive);
+
+      if (!activeKey) {
+        return res.status(400).json({ error: "No active exchange connection" });
+      }
+
+      // Execute real order on connected exchange
+      try {
+        const orderResult = await exchangeService.placeOrder(userId, activeKey.exchange, {
+          symbol,
+          type,
+          side,
+          amount: parseFloat(quantity),
+          price: price ? parseFloat(price) : undefined,
+        });
+
+        console.log(`Real order executed on ${activeKey.exchange}:`, orderResult);
+
+        // Log the real order in database
+        await storage.createOrderAlert({
+          userId,
+          symbol,
+          side,
+          quantity: quantity.toString(),
+          price: price ? price.toString() : "market",
+          type,
+          message: `${side.toUpperCase()} order executed: ${quantity} ${symbol} on ${activeKey.exchange}`,
+        });
+
+        // Broadcast real order to user via WebSocket
+        broadcastToUser(userId, {
+          type: "order_executed",
+          data: orderResult,
+        });
+
+        res.json(orderResult);
+      } catch (orderError: any) {
+        return res.status(503).json({
+          error: "LIVE_DATA_REQUIRED",
+          message: `Cannot execute real order on ${activeKey.exchange}. Verify API keys and exchange connection.`,
+          details: orderError.message,
+        });
+      }
+    } catch (error: any) {
+      console.error("Order placement error:", error);
+      res.status(500).json({ error: "Failed to place order" });
+    }
+  });
 
   // --------------------------- AI & Analysis ---------------------------
 
@@ -2951,6 +2826,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Health check endpoint
+  app.get("/api/health", (req, res) => {
+    res.json({
+      status: "healthy",
+      timestamp: new Date().toISOString(),
+      version: "1.0.0",
+    });
+  });
 
   // Temporary manual verification endpoint (for development/when email fails)
   app.post("/api/auth/manual-verify", async (req, res) => {
@@ -3192,3 +3074,4 @@ function generateChartData(currentPrice: number, change24h: number, timeframe: s
 
   return data;
 }
+
