@@ -1,7 +1,7 @@
-import type { Express, Request } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
-import jwt from "jsonwebtoken";
+import jwt, { JwtPayload } from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { body, validationResult } from "express-validator";
@@ -46,8 +46,10 @@ function isPublic(req: Request): boolean {
 
   const cleanUrl = url.split("?")[0];
 
+  // Health checks
   if (cleanUrl === "/healthz" || cleanUrl === "/api/health") return true;
 
+  // Auth flows (register/login/forgot/reset) — support legacy paths too
   if (
     cleanUrl.startsWith("/api/auth/") ||
     cleanUrl.startsWith("/auth/") ||
@@ -59,6 +61,7 @@ function isPublic(req: Request): boolean {
     return true;
   }
 
+  // Static/download pages (GET only)
   if (
     req.method === "GET" &&
     (cleanUrl.startsWith("/download") ||
@@ -69,10 +72,8 @@ function isPublic(req: Request): boolean {
     return true;
   }
 
-  if (
-    cleanUrl === "/api/subscription/status" ||
-    cleanUrl === "/api/version"
-  ) {
+  // Anonymous status/version endpoints
+  if (cleanUrl === "/api/subscription/status" || cleanUrl === "/api/version") {
     return true;
   }
 
@@ -89,104 +90,42 @@ if (!JWT_SECRET) {
 // Initialize IAP service
 const iapService = new IAPService();
 
-const encryptData = (text: string): string => encryptSecure(text);
-const decryptData = (encryptedText: string): string => decryptSecure(encryptedText);
-// Utility functions
-// Encryption helpers now delegate to the strong AES-256-GCM implementation in crypto.ts.
+// Encryption helpers delegate to AES-256-GCM in crypto.ts
 const encryptData = (text: string): string => encryptSecure(text);
 const decryptData = (encryptedText: string): string => decryptSecure(encryptedText);
 
-// auth-middleware.ts
-// is-public.ts
-import type { Request } from "express";
-
-export function isPublic(req: Request): boolean {
-  // Always allow CORS preflight
-  if (req.method === "OPTIONS") return true;
-
-  const url = (req.originalUrl || req.path || "").split("?")[0];
-
-  // Static/download pages if you expose them
-  if (
-    req.method === "GET" &&
-    (url.startsWith("/download") ||
-     url.startsWith("/public")   ||
-     url.startsWith("/assets")   ||
-     url.startsWith("/static"))
-  ) {
-    return true;
-  }
-
-  // Exact public API endpoints
-  const publicExact = new Set<string>([
-    "/api/auth/register",
-    "/api/auth/login",
-    "/api/auth/forgot-password",
-    "/api/auth/reset-password",
-    "/api/subscription/status",
-    "/api/health",
-    "/healthz",
-    "/api/version",
-  ]);
-  if (publicExact.has(url)) return true;
-
-  return false;
-}
-import type { Request, Response, NextFunction } from "express";
-import jwt, { JwtPayload } from "jsonwebtoken";
-import { storage } from "./storage";
-import { securityLogger } from "./security-logger"; // adjust path
-import { isPublic } from "./is-public"; // see simple helper below
-
-const JWT_SECRET = process.env.JWT_SECRET || process.env.JWT_ACCESS_SECRET || "";
-const JWT_ISSUER = process.env.JWT_ISSUER;    // optional hardening
-const JWT_AUDIENCE = process.env.JWT_AUDIENCE; // optional hardening
-const MAX_CLOCK_SKEW_SEC = Number(process.env.JWT_MAX_CLOCK_SKEW_SEC || 60); // allow slight skew
-
-if (!JWT_SECRET) {
-  throw new Error("JWT_SECRET must be set");
-}
-
+/**
+ * ---- Auth middleware (uses isPublic) ----
+ */
 type AuthedRequest = Request & { user?: any };
 
 function getClientIP(req: Request): string {
-  // Render sits behind a proxy; use X-Forwarded-For first
   const xff = (req.headers["x-forwarded-for"] || "") as string;
   const firstHop = xff.split(",")[0]?.trim();
-  return (
-    firstHop ||
-    (req.ip || (req as any).connection?.remoteAddress || "").toString()
-  );
+  return firstHop || (req.ip || (req as any).connection?.remoteAddress || "").toString();
 }
 
 function getBearerToken(req: Request): string | undefined {
-  // 1) Authorization header
+  // 1) Authorization: Bearer <token>
   const authHeader = req.headers.authorization || "";
   const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
   if (bearerMatch) return bearerMatch[1];
 
-  // 2) Raw token in Authorization (some clients do this)
-  if (authHeader && !authHeader.toLowerCase().startsWith("bearer")) {
-    return authHeader;
-  }
+  // 2) Raw token in Authorization
+  if (authHeader && !/^Bearer/i.test(authHeader)) return authHeader;
 
-  // 3) Cookie fallback (useful for browser calls)
+  // 3) Cookie fallback
   const cookie = req.headers.cookie || "";
-  const tokenFromCookie =
-    cookie
-      .split(";")
-      .map((c) => c.trim())
-      .find((c) => c.startsWith("access_token="))
-      ?.split("=")[1];
+  const tokenFromCookie = cookie
+    .split(";")
+    .map((c) => c.trim())
+    .find((c) => c.startsWith("access_token="))
+    ?.split("=")[1];
 
   return tokenFromCookie;
 }
 
-export async function authenticate(
-  req: AuthedRequest,
-  res: Response,
-  next: NextFunction
-) {
+export async function authenticate(req: AuthedRequest, res: Response, next: NextFunction) {
   // Skip CORS preflight & public routes
   if (req.method === "OPTIONS" || isPublic(req)) return next();
 
@@ -200,9 +139,38 @@ export async function authenticate(
       ip: clientIP,
       userAgent,
       path: url,
+      method: req.method,
     });
     return res.status(401).json({ error: "No token provided" });
   }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET, {
+      // Optional hardening via env:
+      issuer: process.env.JWT_ISSUER,
+      audience: process.env.JWT_AUDIENCE,
+      clockTolerance: Number(process.env.JWT_MAX_CLOCK_SKEW_SEC || 60),
+    }) as JwtPayload;
+
+    req.user = {
+      ...(decoded as any),
+      userId: (decoded as any).userId ?? (decoded as any).id,
+      email: (decoded as any).email,
+      roles: (decoded as any).roles ?? [],
+    };
+
+    return next();
+  } catch (err: any) {
+    securityLogger.warn("Authentication failed: Invalid token", {
+      ip: clientIP,
+      userAgent,
+      path: url,
+      method: req.method,
+      reason: err?.name || "JWTError",
+    });
+    return res.status(401).json({ error: "Invalid token" });
+  }
+}
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET, {
