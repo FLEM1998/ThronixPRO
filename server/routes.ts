@@ -31,10 +31,7 @@ import { auditLog, readRecentLogs } from "./audit-logger";
 import { getSystemMetrics } from "./monitoring-service";
 import { encrypt as encryptSecure, decrypt as decryptSecure } from "./crypto";
 
-/**
- * ---- Public route guard (keeps register/login/health open) ----
- * Keep exactly one definition of isPublic in this file to avoid conflicts.
- */
+/** ---- Public route guard (keeps register/login/health open) ---- */
 function isPublic(req: Request): boolean {
   if (req.method === "OPTIONS") return true;
 
@@ -90,13 +87,11 @@ if (!JWT_SECRET) {
 // Initialize IAP service
 const iapService = new IAPService();
 
-// Encryption helpers delegate to AES-256-GCM in crypto.ts
+// Encryption helpers (AES-256-GCM in crypto.ts)
 const encryptData = (text: string): string => encryptSecure(text);
 const decryptData = (encryptedText: string): string => decryptSecure(encryptedText);
 
-/**
- * ---- Auth middleware (uses isPublic) ----
- */
+/** ---- Auth middleware (uses isPublic) ---- */
 type AuthedRequest = Request & { user?: any };
 
 function getClientIP(req: Request): string {
@@ -125,7 +120,11 @@ function getBearerToken(req: Request): string | undefined {
   return tokenFromCookie;
 }
 
-export async function authenticate(req: AuthedRequest, res: Response, next: NextFunction) {
+export async function authenticate(
+  req: AuthedRequest,
+  res: Response,
+  next: NextFunction
+) {
   // Skip CORS preflight & public routes
   if (req.method === "OPTIONS" || isPublic(req)) return next();
 
@@ -146,7 +145,6 @@ export async function authenticate(req: AuthedRequest, res: Response, next: Next
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET, {
-      // Optional hardening via env:
       issuer: process.env.JWT_ISSUER,
       audience: process.env.JWT_AUDIENCE,
       clockTolerance: Number(process.env.JWT_MAX_CLOCK_SKEW_SEC || 60),
