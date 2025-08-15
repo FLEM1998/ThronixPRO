@@ -31,8 +31,8 @@ import { auditLog, readRecentLogs } from "./audit-logger";
 import { getSystemMetrics } from "./monitoring-service";
 import { encrypt as encryptSecure, decrypt as decryptSecure } from "./crypto";
 
-/** ---- Public route guard (keeps register/login/health open) ---- */
-function isPublic(req: Request): boolean {
+/** Public route guard — keeps health and auth endpoints open */
+function isPublic(req: any): boolean {
   if (req.method === "OPTIONS") return true;
 
   const url =
@@ -62,86 +62,162 @@ function isPublic(req: Request): boolean {
   if (
     req.method === "GET" &&
     (cleanUrl.startsWith("/download") ||
+      cleanUrl.startsWith("/files") ||
       cleanUrl.startsWith("/public") ||
-      cleanUrl.startsWith("/assets") ||
-      cleanUrl.startsWith("/static"))
+      cleanUrl.startsWith("/assets"))
   ) {
-    return true;
-  }
-
-  // Anonymous status/version endpoints
-  if (cleanUrl === "/api/subscription/status" || cleanUrl === "/api/version") {
     return true;
   }
 
   return false;
 }
 
-const JWT_SECRET = process.env.JWT_SECRET;
-const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:5001";
-
-if (!JWT_SECRET) {
-  throw new Error("JWT_SECRET must be set via environment variables");
-}
-
-// Initialize IAP service
-const iapService = new IAPService();
-
-// Encryption helpers (AES-256-GCM in crypto.ts)
-const encryptData = (text: string): string => encryptSecure(text);
-const decryptData = (encryptedText: string): string => decryptSecure(encryptedText);
-
-/** ---- Auth middleware (uses isPublic) ---- */
-type AuthedRequest = Request & { user?: any };
-
-function getClientIP(req: Request): string {
-  const xff = (req.headers["x-forwarded-for"] || "") as string;
-  const firstHop = xff.split(",")[0]?.trim();
-  return firstHop || (req.ip || (req as any).connection?.remoteAddress || "").toString();
-}
-
-function getBearerToken(req: Request): string | undefined {
-  // 1) Authorization: Bearer <token>
+/** Extract token from Bearer header, raw Authorization, or access_token cookie */
+function getBearerToken(req: any): string | undefined {
   const authHeader = req.headers.authorization || "";
   const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
   if (bearerMatch) return bearerMatch[1];
 
-  // 2) Raw token in Authorization
   if (authHeader && !/^Bearer/i.test(authHeader)) return authHeader;
 
-  // 3) Cookie fallback
   const cookie = req.headers.cookie || "";
   const tokenFromCookie = cookie
     .split(";")
-    .map((c) => c.trim())
-    .find((c) => c.startsWith("access_token="))
+    .map((c: string) => c.trim())
+    .find((c: string) => c.startsWith("access_token="))
     ?.split("=")[1];
 
   return tokenFromCookie;
 }
 
-export async function authenticate(
-  req: AuthedRequest,
-  res: Response,
-  next: NextFunction
-) {
-  // Skip CORS preflight & public routes
-  if (req.method === "OPTIONS" || isPublic(req)) return next();
+/** Enhanced authentication middleware with security logging (skips public routes) */
+const authenticate = async (req: any, res: any, next: any) => {
+  if (isPublic(req)) return next();
 
   const token = getBearerToken(req);
-  const clientIP = getClientIP(req);
-  const url = (req as any).originalUrl || req.path;
-  const userAgent = req.get("User-Agent");
+  const clientIP = (req.ip || (req as any).connection?.remoteAddress || "").toString();
+  const url = req.originalUrl || req.path;
 
   if (!token) {
     securityLogger.warn("Authentication failed: No token provided", {
       ip: clientIP,
-      userAgent,
+      userAgent: req.get("User-Agent"),
       path: url,
-      method: req.method,
     });
     return res.status(401).json({ error: "No token provided" });
   }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET as string) as {
+      id?: number;
+      userId?: number;
+      email?: string;
+    };
+
+    const userId = decoded.userId ?? decoded.id;
+    if (!userId) {
+      securityLogger.warn("Authentication failed: Missing userId in token", {
+        ip: clientIP,
+        path: url,
+      });
+      return res.status(401).json({ error: "Invalid token" });
+    }
+
+    const user = await storage.getUser(Number(userId));
+    if (!user) {
+      securityLogger.warn("Authentication failed: User not found", {
+        userId,
+        ip: clientIP,
+        userAgent: req.get("User-Agent"),
+        path: url,
+      });
+      return res.status(401).json({ error: "User not found" });
+    }
+
+    if (user.isDisabled) {
+      securityLogger.warn("Authentication blocked: Account disabled", {
+        userId: user.id,
+        ip: clientIP,
+        userAgent: req.get("User-Agent"),
+        path: url,
+      });
+      return res.status(403).json({ error: "Account disabled" });
+    }
+
+    (req as any).user = user;
+
+    securityLogger.info("User authenticated", {
+      userId: user.id,
+      ip: clientIP,
+      userAgent: req.get("User-Agent"),
+      path: url,
+    });
+
+    next();
+  } catch (err: any) {
+    securityLogger.error("Authentication error", {
+      error: err?.message,
+      ip: clientIP,
+      userAgent: req.get("User-Agent"),
+      path: url,
+    });
+    return res.status(401).json({ error: "Invalid or expired token" });
+  }
+};
+
+/** Enforce active subscription (never blocks public routes; bypass in test mode) */
+const requireActiveSubscription = async (req: any, res: any, next: any) => {
+  if (isPublic(req)) return next(); // safety if mounted broadly
+
+  // Bypass while testing or explicitly allowed
+  if (
+    process.env.SUBSCRIPTION_BYPASS === "true" ||
+    process.env.ALLOW_MANUAL_LOGIN === "true" ||
+    (process.env.NODE_ENV !== "production" && process.env.FORCE_SUBSCRIPTION !== "true")
+  ) {
+    return next();
+  }
+
+  if (!req.user) {
+    return res.status(401).json({ error: "Authentication required" });
+  }
+
+  try {
+    const subscriptionStatus = await storage.getUserSubscriptionStatus(req.user.id);
+
+    if (!subscriptionStatus || !subscriptionStatus.isActive) {
+      securityLogger.warn("Access denied: Inactive subscription", {
+        userId: req.user.id,
+        subscriptionStatus: subscriptionStatus || { isActive: false },
+      });
+      return res.status(402).json({
+        error: "SUBSCRIPTION_INACTIVE",
+        message: "Active subscription required",
+        subscriptionStatus: subscriptionStatus || { isActive: false },
+      });
+    }
+
+    if (subscriptionStatus.expiryDate && new Date(subscriptionStatus.expiryDate) < new Date()) {
+      securityLogger.warn("Access denied: Subscription expired", {
+        userId: req.user.id,
+        expiryDate: subscriptionStatus.expiryDate,
+      });
+      return res.status(402).json({
+        error: "SUBSCRIPTION_EXPIRED",
+        message: "Subscription has expired",
+        subscriptionStatus,
+      });
+    }
+
+    next();
+  } catch (error: any) {
+    securityLogger.error("Subscription verification failed", {
+      error: error?.message,
+      userId: req.user?.id,
+    });
+    return res.status(500).json({ error: "Subscription verification failed" });
+  }
+};
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET, {
