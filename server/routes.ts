@@ -86,6 +86,41 @@ const encryptData = (text: string): string => encryptSecure(text);
 const decryptData = (encryptedText: string): string => decryptSecure(encryptedText);
 
 // auth-middleware.ts
+// is-public.ts
+import type { Request } from "express";
+
+export function isPublic(req: Request): boolean {
+  // Always allow CORS preflight
+  if (req.method === "OPTIONS") return true;
+
+  const url = (req.originalUrl || req.path || "").split("?")[0];
+
+  // Static/download pages if you expose them
+  if (
+    req.method === "GET" &&
+    (url.startsWith("/download") ||
+     url.startsWith("/public")   ||
+     url.startsWith("/assets")   ||
+     url.startsWith("/static"))
+  ) {
+    return true;
+  }
+
+  // Exact public API endpoints
+  const publicExact = new Set<string>([
+    "/api/auth/register",
+    "/api/auth/login",
+    "/api/auth/forgot-password",
+    "/api/auth/reset-password",
+    "/api/subscription/status",
+    "/api/health",
+    "/healthz",
+    "/api/version",
+  ]);
+  if (publicExact.has(url)) return true;
+
+  return false;
+}
 import type { Request, Response, NextFunction } from "express";
 import jwt, { JwtPayload } from "jsonwebtoken";
 import { storage } from "./storage";
