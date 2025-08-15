@@ -36,24 +36,18 @@ import { encrypt as encryptSecure, decrypt as decryptSecure } from "./crypto";
  * Keep exactly one definition of isPublic in this file to avoid conflicts.
  */
 function isPublic(req: Request): boolean {
-  // Always allow CORS preflight
   if (req.method === "OPTIONS") return true;
 
-  // Prefer originalUrl; fall back to baseUrl+path; then path
   const url =
     (req.originalUrl ||
       (((req as any).baseUrl || "") + (req as any).path) ||
       (req as any).path ||
       "") as string;
 
-  // Normalize to path without query string
   const cleanUrl = url.split("?")[0];
 
-  // Health checks
   if (cleanUrl === "/healthz" || cleanUrl === "/api/health") return true;
 
-  // Auth flows (register/login/forgot/reset)
-  // Support both with and without '/auth' prefix for legacy routes
   if (
     cleanUrl.startsWith("/api/auth/") ||
     cleanUrl.startsWith("/auth/") ||
@@ -65,7 +59,6 @@ function isPublic(req: Request): boolean {
     return true;
   }
 
-  // Static/download pages if you expose them (GET only)
   if (
     req.method === "GET" &&
     (cleanUrl.startsWith("/download") ||
@@ -76,7 +69,6 @@ function isPublic(req: Request): boolean {
     return true;
   }
 
-  // Anonymous subscription/status/version endpoints
   if (
     cleanUrl === "/api/subscription/status" ||
     cleanUrl === "/api/version"
@@ -88,7 +80,6 @@ function isPublic(req: Request): boolean {
 }
 
 const JWT_SECRET = process.env.JWT_SECRET;
-// For AI microservice calls; defaults to localhost if not provided
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:5001";
 
 if (!JWT_SECRET) {
@@ -98,35 +89,8 @@ if (!JWT_SECRET) {
 // Initialize IAP service
 const iapService = new IAPService();
 
-/**
- * Utility functions
- * Encryption helpers delegate to the strong AES-256-GCM implementation in crypto.ts.
- */
 const encryptData = (text: string): string => encryptSecure(text);
 const decryptData = (encryptedText: string): string => decryptSecure(encryptedText);
-
-/* ------------------------------------------------------------------
-   NOTE: Remove any duplicate `isPublic` definitions below this line.
-   The previous duplicate block that started with:
-     // auth-middleware.ts
-     // is-public.ts
-     import type { Request } from "express";
-     export function isPublic(...) { ... }
-   has been intentionally deleted to avoid conflicts.
-------------------------------------------------------------------- */
-
-
-const JWT_SECRET = process.env.JWT_SECRET;
-// For AI microservice calls; defaults to localhost if not provided
-const AI_SERVICE_URL = process.env.AI_SERVICE_URL || "http://localhost:5001";
-
-if (!JWT_SECRET) {
-  throw new Error("JWT_SECRET must be set via environment variables");
-}
-
-// Initialize IAP service
-const iapService = new IAPService();
-
 // Utility functions
 // Encryption helpers now delegate to the strong AES-256-GCM implementation in crypto.ts.
 const encryptData = (text: string): string => encryptSecure(text);
