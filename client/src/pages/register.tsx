@@ -59,28 +59,29 @@ export default function Register() {
         termsAccepted: formData.termsAccepted,
       } as const;
 
-      // 1) Try register
-      const regRes = await apiRequest('POST', '/api/auth/register', payload);
-      const regData = await regRes.json();
+      // 1) Try register. apiRequest will parse the JSON and throw on non-OK status.
+      const regData = await apiRequest<{
+        token?: string;
+        user?: any;
+        message?: string;
+      }>('/api/auth/register', 'POST', payload);
 
-      // New server returns { user, token }
-      if (regRes.ok && regData?.token) {
+      // If the server returned a token (new behavior), we're done.
+      if (regData?.token) {
         return regData as { token: string; user: any };
       }
 
       // 2) Fallback: login to get token if register succeeded but no token returned
-      // (or if server responded 200 without token for legacy behavior)
-      const loginRes = await apiRequest('POST', '/api/auth/login', {
+      // (legacy behavior: old server versions returned 200/201 without token)
+      const loginData = await apiRequest<{
+        token: string;
+        user: any;
+        message?: string;
+      }>('/api/auth/login', 'POST', {
         email: payload.email,
         password: payload.password,
       });
-      const loginData = await loginRes.json();
-
-      if (!loginRes.ok) {
-        throw new Error(loginData?.error || 'Login after register failed');
-      }
-
-      return loginData as { token: string; user: any };
+      return loginData;
     },
     onSuccess: (data) => {
       if (!data?.token) {
