@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { registerSchema } from "@shared/schema";
-import { apiRequest } from "@lib/auth";
+import { apiRequest } from "../lib/auth"; // or "@/lib/auth" if you prefer to use the @/* alias
 import { useNavigate } from "react-router-dom";
 import { Checkbox } from "../components/ui/checkbox";
 import { Button } from "../components/ui/button";
