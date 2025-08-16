@@ -417,6 +417,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         password: data.password, // storage.createUser should hash it
         name: data.name,
         emailVerified: true, // auto-verify on registration
+        // Preserve deviceId if provided by mobile clients to bind the account
+        ...(data.deviceId ? { deviceId: data.deviceId } : {}),
       });
 
       // Issue JWT so the user is logged in right away
@@ -433,16 +435,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         message: "Registration successful",
       });
     } catch (error: any) {
+      // Handle Zod validation errors explicitly (missing fields, etc.)
       if (error instanceof z.ZodError) {
-        console.log("Validation errors:", error.errors);
+        console.log('Validation errors:', error.errors);
         return res.status(400).json({
           error: error.errors[0].message,
-          field: error.errors[0].path?.join("."),
+          field: error.errors[0].path?.join('.'),
           allErrors: error.errors,
         });
       }
-      console.error("Registration error:", error);
-      res.status(500).json({ error: "Registration failed" });
+      // Normalize message to simplify comparisons
+      const errMsg = (error?.message || '').toString();
+      // Duplicate email (caught either by DB unique constraint or fallback storage)
+      if (errMsg === 'Email is already registered' || errMsg === 'Email already exists') {
+        return res.status(400).json({ error: errMsg });
+      }
+      // Device already bound to another account
+      if (errMsg === 'DEVICE_ALREADY_REGISTERED') {
+        return res.status(400).json({ error: 'This device has already been registered' });
+      }
+      // Unknown errors: log and respond with generic message
+      console.error('Registration error:', error);
+      res.status(500).json({ error: 'Registration failed' });
     }
   });
 
