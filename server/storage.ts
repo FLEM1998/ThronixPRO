@@ -480,23 +480,61 @@ export class WorkingStorage implements IStorage {
         .orderBy(desc(subscriptions.lastVerified))
         .limit(1);
 
+      // Determine current time and 30-day grace window in milliseconds
+      const now = new Date();
+      const GRACE_PERIOD_MS = 30 * 24 * 60 * 60 * 1000;
+
       if (!subscription) {
-      return { isActive: false };
+        // No subscription record. Apply grace period based on user creation date.
+        try {
+          const user = await this.getUser(userId);
+          if (user?.createdAt) {
+            const created = new Date(user.createdAt).getTime();
+            if (now.getTime() - created < GRACE_PERIOD_MS) {
+              return { isActive: true, expiryDate: undefined, productId: undefined, provider: undefined };
+            }
+          }
+        } catch (e) {
+          // ignore errors while fetching user
+        }
+        return { isActive: false };
       }
 
-      // Check if subscription has expired
-      const now = new Date();
-      const isActive = subscription.isActive && 
-        (!subscription.expiryDate || new Date(subscription.expiryDate) > now);
+      // Check if subscription has expired. If expired but within grace period
+      // (using the subscription's lastVerified date or expiryDate), still return active.
+      const expiry = subscription.expiryDate ? new Date(subscription.expiryDate) : undefined;
+      let active = false;
+      if (subscription.isActive) {
+        // Active subscription that hasn't expired
+        active = !expiry || expiry > now;
+      } else {
+        // Inactive subscription: check grace period from expiryDate or lastVerified
+        const reference = expiry ?? subscription.lastVerified ?? now;
+        if (now.getTime() - new Date(reference).getTime() < GRACE_PERIOD_MS) {
+          active = true;
+        }
+      }
 
       return {
-        isActive,
-        expiryDate: subscription.expiryDate?.toISOString(),
+        isActive: active,
+        expiryDate: expiry?.toISOString(),
         productId: subscription.productId,
-        provider: subscription.provider
+        provider: subscription.provider,
       };
     } catch (error) {
       console.error('Error fetching subscription status:', error);
+      // When subscription table is missing or DB errors, fall back to grace period using user record
+      try {
+        const user = await this.getUser(userId);
+        if (user?.createdAt) {
+          const now = Date.now();
+          const created = new Date(user.createdAt).getTime();
+          const GRACE_PERIOD_MS = 30 * 24 * 60 * 60 * 1000;
+          if (now - created < GRACE_PERIOD_MS) {
+            return { isActive: true };
+          }
+        }
+      } catch {}
       return { isActive: false };
     }
   }
