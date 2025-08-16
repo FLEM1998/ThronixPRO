@@ -383,12 +383,13 @@ export const registerSchema = insertUserSchema.extend({
 export const serverRegisterSchema = z.object({
   name: z.string().min(1, "Name is required"),
   email: z.string().email("Please enter a valid email"),
-  password: z.string().min(1, "Password is required"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
   // Device ID can be provided by mobile clients to bind a user to a device.
   deviceId: z.string().min(1).optional(),
-  termsAccepted: z.boolean().refine((val) => val === true, {
-    message: "You must accept the legal disclaimer to register",
-  }),
+  // Make termsAccepted optional on the server. The client still enforces the
+  // legal disclaimer, but the server no longer throws a validation error
+  // when this field is omitted. If present, it must be a boolean.
+  termsAccepted: z.boolean().optional(),
 });
 
 // Forgot password schema
