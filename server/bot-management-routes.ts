@@ -16,9 +16,8 @@ const authenticate = async (req: any, res: any, next: any) => {
     return res.status(401).json({ error: 'No token provided' });
   }
   
-  try{  
-        const
-         decoded = jwt.verify(token, JWT_SECRET) as { userId: number };
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as { userId: number };
     const user = await storage.getUser(decoded.userId);
     if (!user) {
       return res.status(401).json({ error: 'User not found' });
@@ -33,12 +32,17 @@ const authenticate = async (req: any, res: any, next: any) => {
 
 const router = Router();
 
-// Apply authentication to AI routes
+// Apply authentication only to AI routes
+// This ensures that endpoints outside of the `/ai` namespace (such as `/api/auth/register`)
+// remain publicly accessible without requiring a token. Authentication will be enforced
+// for all routes beginning with `/ai`.
 router.use('/ai', authenticate);
- /**
+
 /**
  * Start an advanced AI trading bot
- */  try {
+ */
+router.post('/ai/bot/start', async (req: Request, res: Response) => {
+  try {
     const userId = (req as any).user.id;
     const { botId, symbol, riskLevel } = req.body;
 
