@@ -417,8 +417,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         password: data.password, // storage.createUser should hash it
         name: data.name,
         emailVerified: true, // auto-verify on registration
-        // Preserve deviceId if provided by mobile clients to bind the account
-        ...(data.deviceId ? { deviceId: data.deviceId } : {}),
+        // NOTE: Device binding is currently disabled on the server until
+        // migrations add the device_id column. See shared/schema.ts
+        // for the simplified serverRegisterSchema.
       });
 
       // Issue JWT so the user is logged in right away
