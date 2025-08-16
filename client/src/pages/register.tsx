@@ -49,11 +49,15 @@ export default function Register() {
   // Register (expect token). If token missing (older server), auto-login as fallback.
   const registerMutation = useMutation({
     mutationFn: async (formData: RegisterForm) => {
+      // Include termsAccepted in the payload. The server's registration schema
+      // expects this boolean. Without sending it, validation will fail with
+      // a "Required" error on the `termsAccepted` field.
       const payload = {
         name: formData.name,
         email: formData.email,
         password: formData.password,
-      };
+        termsAccepted: formData.termsAccepted,
+      } as const;
 
       // 1) Try register
       const regRes = await apiRequest('POST', '/api/auth/register', payload);
