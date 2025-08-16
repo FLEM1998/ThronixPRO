@@ -145,6 +145,14 @@ export default function Register() {
         </CardHeader>
         <CardContent>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            {/*
+              Register the termsAccepted field as a hidden input. Without this
+              hidden field, react-hook-form may mark the boolean field as
+              required and display an empty "Required" error on some browsers.
+              By registering it explicitly we ensure the field is always part
+              of the form data, and its value is controlled via handleAcceptTerms.
+            */}
+            <input type="hidden" {...form.register('termsAccepted')} />
             {error && (
               <Alert variant="destructive">
                 <AlertDescription>{error}</AlertDescription>
