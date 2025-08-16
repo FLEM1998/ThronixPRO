@@ -3,8 +3,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { registerSchema } from "@shared/schema";
 import { apiRequest } from "../lib/auth"; // or "@/lib/auth" if you prefer to use the @/* alias
-import { useNavigate } from "react-router-dom";
-import { Checkbox } from "../components/ui/checkbox";
+
+
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
@@ -17,9 +17,8 @@ interface RegisterFormData {
   confirmPassword: string;
   termsAccepted: boolean;
 }
-
 export default function RegisterPage() {
-  const navigate = useNavigate();
+ 
   const [loading, setLoading] = useState(false);
   const {
     register,
@@ -58,8 +57,7 @@ export default function RegisterPage() {
         // Store token in localStorage and redirect to dashboard
         localStorage.setItem("thronixpro_token", (result as any).token);
         navigate("/dashboard");
-      } else {
-        // If no token returned, attempt to log in with new credentials
+      } else         // If no token returned, attempt to log in with new credentials
         const loginResp = await apiRequest(
           "/api/auth/login",
           "POST",
@@ -70,7 +68,7 @@ export default function RegisterPage() {
         );
         if ((loginResp as any).token) {
           localStorage.setItem("thronixpro_token", (loginResp as any).token);
-          navigate("/dashboard");
+       navigate("/dashboard");
         } else {
           toast({ title: "Registration failed", description: JSON.stringify(loginResp) });
         }
