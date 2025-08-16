@@ -115,58 +115,83 @@ export class WorkingStorage implements IStorage {
   }
 
   async getUser(id: number): Promise<User | undefined> {
-    return this.executeWithFallback(
-      async () => {
-        // Select only the columns that are guaranteed to exist in the production
-        // database. Selecting all columns would include device_id, which may be
-        // absent on some deployments and causes errors like
-        // "column \"device_id\" does not exist". Explicitly mapping
-        // properties avoids referencing missing columns.
-        const [user] = await db
-          .select({
-            id: users.id,
-            email: users.email,
-            password: users.password,
-            name: users.name,
-            emailVerified: users.emailVerified,
-            verificationToken: users.verificationToken,
-            verificationExpires: users.verificationExpires,
-            passwordResetToken: users.passwordResetToken,
-            passwordResetExpires: users.passwordResetExpires,
-            // Exclude deviceId and any other optional fields that might be missing
-          })
-          .from(users)
-          .where(eq(users.id, id));
-        return user || undefined;
-      },
-      async () => persistentStorage.getUser(id)
-    );
+    // Always attempt the primary DB lookup first. If a user is not found (or an
+    // error occurs), fall back to the persistent storage. This ensures that
+    // users saved via the fallback after a DB failure can still be retrieved
+    // even when the DB later becomes available again. Previously, the fallback
+    // was only used when the DB threw an error, which meant missing users were
+    // never looked up in the fallback store.
+    try {
+      const [user] = await db
+        .select({
+          id: users.id,
+          email: users.email,
+          password: users.password,
+          name: users.name,
+          emailVerified: users.emailVerified,
+          verificationToken: users.verificationToken,
+          verificationExpires: users.verificationExpires,
+          passwordResetToken: users.passwordResetToken,
+          passwordResetExpires: users.passwordResetExpires,
+        })
+        .from(users)
+        .where(eq(users.id, id));
+      if (user) return user;
+    } catch (error: any) {
+      console.error(
+        'Primary storage operation failed, falling back to persistent storage:',
+        error?.message || error
+      );
+    }
+    // Either no user was found in the primary DB or an error occurred.
+    try {
+      this.usingMemory = true;
+      return await persistentStorage.getUser(id);
+    } catch (fallbackError: any) {
+      console.error(
+        'Persistent storage fallback also failed:',
+        fallbackError?.message || fallbackError
+      );
+      throw fallbackError;
+    }
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
-    return this.executeWithFallback(
-      async () => {
-        // Select only known-safe columns; avoid selecting the device_id column on
-        // databases that haven't been migrated to include it. Using LOWER() on
-        // email for case-insensitive comparison.
-        const [user] = await db
-          .select({
-            id: users.id,
-            email: users.email,
-            password: users.password,
-            name: users.name,
-            emailVerified: users.emailVerified,
-            verificationToken: users.verificationToken,
-            verificationExpires: users.verificationExpires,
-            passwordResetToken: users.passwordResetToken,
-            passwordResetExpires: users.passwordResetExpires,
-          })
-          .from(users)
-          .where(sql`LOWER(${users.email}) = LOWER(${email})`);
-        return user || undefined;
-      },
-      async () => persistentStorage.getUserByEmail(email)
-    );
+    // Attempt DB lookup first. If nothing is returned or an error occurs, try
+    // the persistent file-based storage. This mirrors getUser() and ensures
+    // fallback is consulted even when the DB query returns no rows.
+    try {
+      const [user] = await db
+        .select({
+          id: users.id,
+          email: users.email,
+          password: users.password,
+          name: users.name,
+          emailVerified: users.emailVerified,
+          verificationToken: users.verificationToken,
+          verificationExpires: users.verificationExpires,
+          passwordResetToken: users.passwordResetToken,
+          passwordResetExpires: users.passwordResetExpires,
+        })
+        .from(users)
+        .where(sql`LOWER(${users.email}) = LOWER(${email})`);
+      if (user) return user;
+    } catch (error: any) {
+      console.error(
+        'Primary storage operation failed, falling back to persistent storage:',
+        error?.message || error
+      );
+    }
+    try {
+      this.usingMemory = true;
+      return await persistentStorage.getUserByEmail(email);
+    } catch (fallbackError: any) {
+      console.error(
+        'Persistent storage fallback also failed:',
+        fallbackError?.message || fallbackError
+      );
+      throw fallbackError;
+    }
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
