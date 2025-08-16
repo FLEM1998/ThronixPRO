@@ -16,8 +16,9 @@ const authenticate = async (req: any, res: any, next: any) => {
     return res.status(401).json({ error: 'No token provided' });
   }
   
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: number };
+  try{  
+        const
+         decoded = jwt.verify(token, JWT_SECRET) as { userId: number };
     const user = await storage.getUser(decoded.userId);
     if (!user) {
       return res.status(401).json({ error: 'User not found' });
@@ -32,14 +33,12 @@ const authenticate = async (req: any, res: any, next: any) => {
 
 const router = Router();
 
-// Apply authentication to all bot routes
-router.use(authenticate);
-
+// Apply authentication to AI routes
+router.use('/ai', authenticate);
+ /**
 /**
  * Start an advanced AI trading bot
- */
-router.post('/ai/bot/start', async (req: Request, res: Response) => {
-  try {
+ */  try {
     const userId = (req as any).user.id;
     const { botId, symbol, riskLevel } = req.body;
 
