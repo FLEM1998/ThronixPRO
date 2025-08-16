@@ -373,8 +373,19 @@ export const registerSchema = insertUserSchema.extend({
 });
 
 // Server-side registration schema (no confirmPassword needed)
-// NOTE: insertUserSchema already includes optional deviceId.
-export const serverRegisterSchema = insertUserSchema.extend({
+// NOTE: Accept only the fields we expect from the client during registration.
+// Using insertUserSchema here would require fields like emailVerified and
+// verification tokens that the client never sends, which caused validation
+// errors in some environments. To avoid unwanted "Required" errors when
+// registering a new user, explicitly define the schema for the fields we
+// accept. Additional user properties (emailVerified, deviceId, etc.) are
+// either set by the server or remain optional.
+export const serverRegisterSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  email: z.string().email("Please enter a valid email"),
+  password: z.string().min(1, "Password is required"),
+  // Device ID can be provided by mobile clients to bind a user to a device.
+  deviceId: z.string().min(1).optional(),
   termsAccepted: z.boolean().refine((val) => val === true, {
     message: "You must accept the legal disclaimer to register",
   }),
