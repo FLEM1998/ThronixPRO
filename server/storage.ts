@@ -87,15 +87,30 @@ export class WorkingStorage implements IStorage {
 
   private async executeWithFallback<T>(operation: () => Promise<T>, persistentOperation: () => Promise<T>): Promise<T> {
     try {
-      // Try database operation first
+      // Attempt the primary database operation first.
       return await operation();
     } catch (error: any) {
-      if (error.message?.includes('endpoint has been disabled') || error.message?.includes('database')) {
-        console.log('Database failed, using persistent file storage for data safety...');
+      // When the primary operation fails (e.g. DB unavailable), attempt the
+      // persistent file-based storage as a fallback. Logging both the primary
+      // and fallback errors helps diagnose issues across different runtimes.
+      console.error(
+        'Primary storage operation failed, falling back to persistent storage:',
+        error?.message || error
+      );
+      try {
         this.usingMemory = true;
         return await persistentOperation();
+      } catch (fallbackError: any) {
+        // If the persistent fallback also fails, propagate the fallback error
+        // instead of the original one so upstream handlers can react to the
+        // specific failure (e.g. device already registered). Rethrowing the
+        // original DB error masked useful context from the persistent layer.
+        console.error(
+          'Persistent storage fallback also failed:',
+          fallbackError?.message || fallbackError
+        );
+        throw fallbackError;
       }
-      throw error;
     }
   }
 
